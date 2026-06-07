@@ -65,27 +65,27 @@ class MailService:
             after = batch[-1]["id"]
         return items
 
-    def _enrich_received(self, items: list[dict]) -> list[dict]:
-        """Подгружает полное содержимое входящих (для цепочки)."""
-        enriched: list[dict] = []
-        for item in items:
+    def _enrich_thread_messages(self, thread: Thread) -> None:
+        """Подгружает содержимое только для писем выбранной цепочки."""
+        for msg in thread.messages:
             try:
-                full = self._client.get_received(item["id"])
-                enriched.append(full)
+                if msg.source == "received":
+                    full = self._client.get_received(msg.id)
+                else:
+                    full = self._client.get_sent(msg.id)
+                msg.html = full.get("html")
+                msg.text = full.get("text")
+                if full.get("message_id"):
+                    msg.message_id = full.get("message_id")
             except HTTPException:
-                enriched.append(item)
-        return enriched
+                continue
 
-    def _enrich_sent(self, items: list[dict]) -> list[dict]:
-        """Подгружает полное содержимое отправленных."""
-        enriched: list[dict] = []
-        for item in items:
-            try:
-                full = self._client.get_sent(item["id"])
-                enriched.append(full)
-            except HTTPException:
-                enriched.append(item)
-        return enriched
+    def _find_thread_fast(self, mailbox: Mailbox, thread_id: str) -> Thread | None:
+        """Быстро находит цепочку по ID без загрузки тел писем."""
+        received = self._fetch_all_received()
+        sent = self._fetch_all_sent()
+        threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
+        return next((t for t in threads if t.id == thread_id), None)
 
     def list_threads(self, mailbox_id: str) -> dict[str, Any]:
         """Список цепочек переписки для ящика."""
@@ -100,13 +100,12 @@ class MailService:
         }
 
     def get_thread(self, mailbox_id: str, thread_id: str) -> dict[str, Any]:
-        """Полная цепочка с содержимым всех писем."""
+        """Полная цепочка с содержимым писем (загружает только её письма)."""
         mailbox = self._require_mailbox(mailbox_id)
-        received = self._enrich_received(self._fetch_all_received())
-        sent = self._enrich_sent(self._fetch_all_sent())
-        thread = self._threads.find_thread(mailbox, thread_id, received, sent)
+        thread = self._find_thread_fast(mailbox, thread_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
+        self._enrich_thread_messages(thread)
         return thread.to_detail()
 
     def send_email(self, dto: SendEmailDto) -> dict[str, Any]:
@@ -150,11 +149,13 @@ class MailService:
         mailbox = self._require_mailbox(mailbox_id)
         self._require_body(dto.html, dto.text, "Текст ответа не может быть пустым.")
 
-        received = self._enrich_received(self._fetch_all_received())
-        sent = self._enrich_sent(self._fetch_all_sent())
-        thread = self._threads.find_thread(mailbox, thread_id, received, sent)
+        thread = self._find_thread_fast(mailbox, thread_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
+
+        # message_id нужен для In-Reply-To — подгружаем только если его нет
+        if not self._threads.collect_message_ids(thread):
+            self._enrich_thread_messages(thread)
 
         recipient = self._resolve_reply_recipient(thread, mailbox)
         subject = self._resolve_reply_subject(thread)

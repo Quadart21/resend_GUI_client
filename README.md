@@ -56,7 +56,15 @@ uvicorn main:app --host 0.0.0.0 --port 8080
 uvicorn main:app --host 127.0.0.1 --port 8080 --reload
 
 # Терминал 2 — Vue dev-сервер (hot reload, proxy /api)
-cd frontend && npm install && npm run dev
+cd frontend
+npm install
+npm run dev
+```
+
+**PowerShell** (в старых версиях `&&` не работает — используйте `;` или отдельные строки):
+
+```powershell
+cd frontend; npm run dev
 ```
 
 Dev-сервер: `http://localhost:5173`

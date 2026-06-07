@@ -16,6 +16,7 @@ const threads = ref([])
 const activeThread = ref(null)
 const activeThreadId = ref(null)
 const loadingThreads = ref(false)
+const loadingThread = ref(false)
 const composeOpen = ref(false)
 const settingsOpen = ref(false)
 
@@ -72,11 +73,24 @@ async function selectMailbox(id) {
 
 async function openThread(threadId) {
   if (!activeMailboxId.value) return
+
+  activeThreadId.value = threadId
+  loadingThread.value = true
+
+  // Сразу показываем заголовок из списка, пока грузится тело
+  const preview = threads.value.find((t) => t.id === threadId)
+  activeThread.value = preview
+    ? { ...preview, messages: [] }
+    : null
+
   try {
-    activeThreadId.value = threadId
     activeThread.value = await api.getThread(activeMailboxId.value, threadId)
   } catch (err) {
     notify(err.message, 'error')
+    activeThread.value = null
+    activeThreadId.value = null
+  } finally {
+    loadingThread.value = false
   }
 }
 
@@ -156,6 +170,7 @@ onMounted(async () => {
     <ConversationPanel
       :thread="activeThread"
       :mailbox="activeMailbox"
+      :loading="loadingThread"
       @reply="handleReply"
     />
   </div>
