@@ -48,15 +48,15 @@ class MailService:
             raise HTTPException(status_code=400, detail=error_message)
 
     def sync_mailbox(self) -> dict[str, Any]:
-        """Синхронизирует письма с Resend в SQLite."""
+        """Полная синхронизация с Resend (ручной запуск)."""
         return self._sync.sync_all()
 
     def _emails_from_db(self) -> tuple[list[dict], list[dict]]:
-        """Читает входящие и исходящие из локальной БД."""
+        """Читает последние письма из локальной БД."""
         return self._emails.list_received(), self._emails.list_sent()
 
     def _enrich_thread_from_db_or_api(self, thread: Thread) -> None:
-        """Дополняет тело письма из БД или Resend API."""
+        """Дополняет тело письма из БД или Resend API (только для открытой цепочки)."""
         for msg in thread.messages:
             stored = self._emails.get_by_id(msg.id)
             if stored:
@@ -66,7 +66,9 @@ class MailService:
                     msg.message_id = stored.get("message_id")
                 if stored.get("last_event"):
                     msg.last_event = stored.get("last_event")
-                continue
+                if msg.html or msg.text:
+                    continue
+
             try:
                 if msg.source == "received":
                     full = self._client.get_received(msg.id)
@@ -82,13 +84,16 @@ class MailService:
 
     def _find_thread_fast(self, mailbox: Mailbox, thread_id: str) -> Thread | None:
         received, sent = self._emails_from_db()
-        threads = self._threads.build_threads(mailbox, received, sent, include_details=True)
+        threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
         return next((t for t in threads if t.id == thread_id), None)
 
-    def list_threads(self, mailbox_id: str, sync: bool = True) -> dict[str, Any]:
-        """Список цепочек: синхронизация + чтение из SQLite."""
+    def list_threads(self, mailbox_id: str, sync: bool = False) -> dict[str, Any]:
+        """Список цепочек из SQLite; sync=True — быстрая догрузка новых с Resend."""
         mailbox = self._require_mailbox(mailbox_id)
-        sync_info = self._sync.sync_all() if sync else {"skipped": True}
+        if sync:
+            sync_info = self._sync.sync_incremental()
+        else:
+            sync_info = {"skipped": True, "from_cache": True}
         received, sent = self._emails_from_db()
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
         return {

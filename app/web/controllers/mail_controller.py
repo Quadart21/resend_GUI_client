@@ -18,10 +18,14 @@ class MailController:
         """Регистрирует маршруты контроллера."""
 
         @router.get("/mailboxes/{mailbox_id}/threads")
-        async def list_threads(mailbox_id: str, request: Request) -> dict:
+        async def list_threads(
+            mailbox_id: str,
+            request: Request,
+            sync: bool = False,
+        ) -> dict:
             user = self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             self._auth.require_mailbox_access(user, mailbox_id)
-            return self._mail.list_threads(mailbox_id)
+            return self._mail.list_threads(mailbox_id, sync=sync)
 
         @router.get("/mailboxes/{mailbox_id}/threads/{thread_id}")
         async def get_thread(mailbox_id: str, thread_id: str, request: Request) -> dict:

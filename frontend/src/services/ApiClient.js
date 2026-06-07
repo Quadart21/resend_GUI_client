@@ -72,8 +72,9 @@ export class ApiClient {
     return this.request(`/mailboxes/${id}`, { method: 'DELETE' })
   }
 
-  listThreads(mailboxId) {
-    return this.request(`/mailboxes/${mailboxId}/threads`)
+  listThreads(mailboxId, sync = false) {
+    const q = sync ? '?sync=true' : ''
+    return this.request(`/mailboxes/${mailboxId}/threads${q}`)
   }
 
   getThread(mailboxId, threadId) {

@@ -75,6 +75,8 @@ class Thread:
             import re
             plain = re.sub(r"<[^>]+>", "", last.html)
             return plain[:120]
+        if last.subject:
+            return last.subject[:120]
         return ""
 
     @property

@@ -126,20 +126,37 @@ class EmailRepository:
             row = conn.execute("SELECT * FROM emails WHERE id = ?", (email_id,)).fetchone()
             return self._row_to_api_dict(row) if row else None
 
-    def list_by_source(self, source: str) -> list[dict[str, Any]]:
-        """Все письма по типу ``received`` / ``sent``."""
+    def exists(self, email_id: str) -> bool:
         with self._db.connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM emails WHERE source = ? ORDER BY created_at DESC",
-                (source,),
-            ).fetchall()
+            row = conn.execute(
+                "SELECT 1 FROM emails WHERE id = ? LIMIT 1",
+                (email_id,),
+            ).fetchone()
+            return row is not None
+
+    def list_by_source(self, source: str, limit: int | None = 500) -> list[dict[str, Any]]:
+        """Письма по типу, новые первыми (ограничение для скорости UI)."""
+        with self._db.connection() as conn:
+            if limit:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM emails WHERE source = ?
+                    ORDER BY created_at DESC LIMIT ?
+                    """,
+                    (source, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM emails WHERE source = ? ORDER BY created_at DESC",
+                    (source,),
+                ).fetchall()
             return [self._row_to_api_dict(r) for r in rows]
 
-    def list_received(self) -> list[dict[str, Any]]:
-        return self.list_by_source("received")
+    def list_received(self, limit: int | None = 500) -> list[dict[str, Any]]:
+        return self.list_by_source("received", limit)
 
-    def list_sent(self) -> list[dict[str, Any]]:
-        return self.list_by_source("sent")
+    def list_sent(self, limit: int | None = 500) -> list[dict[str, Any]]:
+        return self.list_by_source("sent", limit)
 
     def count(self) -> int:
         with self._db.connection() as conn:

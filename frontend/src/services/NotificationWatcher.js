@@ -4,7 +4,7 @@
 const STORAGE_KEY = 'resend_notifications_enabled'
 const SINCE_KEY = 'resend_notifications_since'
 const SEEN_KEY = 'resend_notifications_seen'
-const POLL_MS = 30_000
+const POLL_MS = 20_000
 const MAX_SEEN = 200
 
 export class NotificationWatcher {

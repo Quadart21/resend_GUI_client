@@ -29,6 +29,9 @@ const sidebarOpen = ref(false)
 const notificationsOn = ref(localStorage.getItem('resend_notifications_enabled') === '1')
 
 let notificationWatcher = null
+let refreshTimer = null
+const REFRESH_DB_MS = 15_000
+const REFRESH_SYNC_MS = 60_000
 
 const isAdmin = computed(() => Boolean(user.value?.is_admin))
 
@@ -68,21 +71,25 @@ async function loadConfig() {
   }
 }
 
-async function loadThreads() {
+async function loadThreads(sync = false, silent = false) {
   if (!activeMailboxId.value) {
     threads.value = []
     return
   }
-  loadingThreads.value = true
+  if (!silent) loadingThreads.value = true
   try {
-    const data = await api.listThreads(activeMailboxId.value)
+    const data = await api.listThreads(activeMailboxId.value, sync)
     threads.value = data.threads || []
   } catch (err) {
-    notify(err.message, 'error')
+    if (!silent) notify(err.message, 'error')
     threads.value = []
   } finally {
-    loadingThreads.value = false
+    if (!silent) loadingThreads.value = false
   }
+}
+
+async function refreshThreads() {
+  await loadThreads(true)
 }
 
 async function selectMailbox(id) {
@@ -165,13 +172,33 @@ async function onLogin(loggedInUser) {
   user.value = loggedInUser
   await bootstrapApp()
   initNotifications()
+  startAutoRefresh()
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  let syncCounter = 0
+  refreshTimer = setInterval(async () => {
+    if (!user.value || !activeMailboxId.value) return
+    syncCounter += REFRESH_DB_MS
+    const withSync = syncCounter >= REFRESH_SYNC_MS
+    if (withSync) syncCounter = 0
+    await loadThreads(withSync, true)
+  }, REFRESH_DB_MS)
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
 }
 
 function initNotifications() {
   if (!NotificationWatcher.isSupported()) return
 
   notificationWatcher = new NotificationWatcher(api, {
-    onNewMail: () => loadThreads(),
+    onNewMail: () => loadThreads(false),
     onError: () => {},
   })
 
@@ -208,6 +235,7 @@ async function toggleNotifications() {
 
 async function logout() {
   notificationWatcher?.stop()
+  stopAutoRefresh()
   notificationsOn.value = false
   try {
     await api.logout()
@@ -236,6 +264,7 @@ onMounted(async () => {
     user.value = data.user
     await bootstrapApp()
     initNotifications()
+    startAutoRefresh()
   } catch {
     user.value = null
   } finally {
@@ -245,6 +274,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   notificationWatcher?.stop()
+  stopAutoRefresh()
 })
 </script>
 
@@ -293,7 +323,7 @@ onUnmounted(() => {
         :is-admin="isAdmin"
         :notifications-on="notificationsOn"
         @select="openThread"
-        @refresh="loadThreads"
+        @refresh="refreshThreads"
         @menu="sidebarOpen = true"
         @compose="openCompose"
         @settings="openAdminPanel"
