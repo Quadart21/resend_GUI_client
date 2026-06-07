@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { api } from '@/services/ApiClient'
 
 const props = defineProps({
@@ -13,15 +13,19 @@ const users = ref([])
 const mailboxes = ref([])
 const loading = ref(false)
 const saving = ref(false)
-
 const newUsername = ref('')
-const newPassword = ref('')
 const newIsAdmin = ref(false)
 const newMailboxIds = ref([])
+const credentials = ref(null)
+
+const loginUrl = computed(() => window.location.origin)
 
 watch(
   () => props.open,
-  (isOpen) => { if (isOpen) load() },
+  (isOpen) => {
+    if (isOpen) load()
+    else credentials.value = null
+  },
 )
 
 async function load() {
@@ -40,23 +44,65 @@ async function load() {
   }
 }
 
+function showCredentials(data) {
+  if (!data?.credentials) return
+  credentials.value = {
+    username: data.credentials.username,
+    password: data.credentials.password,
+    loginUrl: loginUrl.value,
+  }
+}
+
+async function copyText(text, label) {
+  try {
+    await navigator.clipboard.writeText(text)
+    emit('notify', `${label} скопирован`)
+  } catch {
+    emit('notify', 'Не удалось скопировать', 'error')
+  }
+}
+
+async function copyAllCredentials() {
+  if (!credentials.value) return
+  const block = [
+    `Ссылка: ${credentials.value.loginUrl}`,
+    `Логин: ${credentials.value.username}`,
+    `Пароль: ${credentials.value.password}`,
+  ].join('\n')
+  await copyText(block, 'Данные для входа')
+}
+
 async function createUser() {
   saving.value = true
   try {
-    await api.createUser({
+    const data = await api.createUser({
       username: newUsername.value.trim(),
-      password: newPassword.value,
       is_admin: newIsAdmin.value,
       mailbox_ids: newIsAdmin.value ? [] : [...newMailboxIds.value],
     })
     newUsername.value = ''
-    newPassword.value = ''
     newIsAdmin.value = false
     newMailboxIds.value = []
+    showCredentials(data)
     await load()
     emit('changed')
+    emit('notify', 'Пользователь создан')
   } catch (err) {
-    alert(err.message)
+    emit('notify', err.message, 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function regeneratePassword(user) {
+  if (!confirm(`Сгенерировать новый пароль для «${user.username}»? Старый перестанет работать.`)) return
+  saving.value = true
+  try {
+    const data = await api.regenerateUserPassword(user.id)
+    showCredentials(data)
+    emit('notify', 'Новый пароль сгенерирован')
+  } catch (err) {
+    emit('notify', err.message, 'error')
   } finally {
     saving.value = false
   }
@@ -68,7 +114,7 @@ async function toggleActive(user) {
     await load()
     emit('changed')
   } catch (err) {
-    alert(err.message)
+    emit('notify', err.message, 'error')
   }
 }
 
@@ -76,10 +122,11 @@ async function deleteUser(user) {
   if (!confirm(`Удалить пользователя «${user.username}»?`)) return
   try {
     await api.deleteUser(user.id)
+    if (credentials.value?.username === user.username) credentials.value = null
     await load()
     emit('changed')
   } catch (err) {
-    alert(err.message)
+    emit('notify', err.message, 'error')
   }
 }
 
@@ -96,7 +143,7 @@ async function saveMailboxes(user, mailboxIds) {
     await load()
     emit('changed')
   } catch (err) {
-    alert(err.message)
+    emit('notify', err.message, 'error')
   }
 }
 
@@ -120,6 +167,56 @@ function mailboxLabel(id) {
         </header>
 
         <div class="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+          <!-- Данные для входа (показываются один раз после создания/сброса) -->
+          <section
+            v-if="credentials"
+            class="rounded-[10px] border border-amber-500/40 bg-amber-500/10 p-4"
+          >
+            <div class="mb-3 flex items-start justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-bold text-amber-200">Данные для входа</h3>
+                <p class="mt-1 text-xs text-amber-200/70">
+                  Сохраните сейчас — пароль больше не будет показан
+                </p>
+              </div>
+              <button type="button" class="btn-ghost text-xs" @click="credentials = null">✕</button>
+            </div>
+
+            <dl class="space-y-2.5 text-sm">
+              <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-black/20 px-3 py-2">
+                <div>
+                  <dt class="text-[10px] uppercase tracking-wide text-zinc-500">Ссылка</dt>
+                  <dd class="font-mono text-xs text-zinc-200">{{ credentials.loginUrl }}</dd>
+                </div>
+                <button type="button" class="btn-secondary px-2 py-1 text-xs" @click="copyText(credentials.loginUrl, 'Ссылка')">
+                  Копировать
+                </button>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-black/20 px-3 py-2">
+                <div>
+                  <dt class="text-[10px] uppercase tracking-wide text-zinc-500">Логин</dt>
+                  <dd class="font-mono text-zinc-100">{{ credentials.username }}</dd>
+                </div>
+                <button type="button" class="btn-secondary px-2 py-1 text-xs" @click="copyText(credentials.username, 'Логин')">
+                  Копировать
+                </button>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-black/20 px-3 py-2">
+                <div>
+                  <dt class="text-[10px] uppercase tracking-wide text-zinc-500">Пароль</dt>
+                  <dd class="font-mono text-lg font-bold tracking-wide text-zinc-50">{{ credentials.password }}</dd>
+                </div>
+                <button type="button" class="btn-secondary px-2 py-1 text-xs" @click="copyText(credentials.password, 'Пароль')">
+                  Копировать
+                </button>
+              </div>
+            </dl>
+
+            <button type="button" class="btn-primary mt-3 w-full sm:w-auto" @click="copyAllCredentials">
+              Копировать всё
+            </button>
+          </section>
+
           <div v-if="loading" class="py-8 text-center text-sm text-zinc-500">Загрузка...</div>
 
           <template v-else>
@@ -142,7 +239,15 @@ function mailboxLabel(id) {
                 >
                   {{ user.is_active ? 'активен' : 'отключён' }}
                 </span>
-                <div class="ml-auto flex gap-2">
+                <div class="ml-auto flex flex-wrap gap-2">
+                  <button
+                    v-if="user.id !== currentUserId"
+                    type="button"
+                    class="text-xs text-accent-hover hover:underline"
+                    @click="regeneratePassword(user)"
+                  >
+                    Новый пароль
+                  </button>
                   <button
                     v-if="user.id !== currentUserId"
                     type="button"
@@ -186,12 +291,10 @@ function mailboxLabel(id) {
             </section>
 
             <section class="rounded-[10px] border border-dashed border-border-light p-4">
-              <h3 class="mb-3 text-sm font-bold">Новый пользователь</h3>
+              <h3 class="mb-1 text-sm font-bold">Новый пользователь</h3>
+              <p class="mb-3 text-xs text-zinc-500">Пароль сгенерируется автоматически</p>
               <form class="space-y-3" @submit.prevent="createUser">
-                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input v-model="newUsername" type="text" class="input-field" placeholder="Логин" required />
-                  <input v-model="newPassword" type="password" class="input-field" placeholder="Пароль (мин. 4)" required minlength="4" />
-                </div>
+                <input v-model="newUsername" type="text" class="input-field" placeholder="Логин" required />
 
                 <label class="flex items-center gap-2 text-sm text-zinc-300">
                   <input v-model="newIsAdmin" type="checkbox" class="accent-accent" />
@@ -210,7 +313,9 @@ function mailboxLabel(id) {
                   </label>
                 </div>
 
-                <button type="submit" class="btn-primary" :disabled="saving">Создать</button>
+                <button type="submit" class="btn-primary" :disabled="saving">
+                  {{ saving ? 'Создание...' : 'Создать пользователя' }}
+                </button>
               </form>
             </section>
           </template>

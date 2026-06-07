@@ -88,19 +88,32 @@ class AuthService:
     def create_user(
         self,
         username: str,
-        password: str,
+        password: str = "",
         *,
         is_admin: bool = False,
         mailbox_ids: list[str] | None = None,
-    ) -> User:
-        if len(password) < 4:
+    ) -> tuple[User, str]:
+        """Создаёт пользователя. Возвращает (user, plain_password)."""
+        plain = password.strip() or PasswordService.generate_password()
+        if len(plain) < 4:
             raise ValueError("Пароль должен быть не короче 4 символов")
-        return self._users.create(
+        user = self._users.create(
             username=username,
-            password_hash=PasswordService.hash_password(password),
+            password_hash=PasswordService.hash_password(plain),
             is_admin=is_admin,
             mailbox_ids=mailbox_ids or [],
         )
+        return user, plain
+
+    def regenerate_password(self, user_id: str) -> tuple[User, str]:
+        """Новый случайный пароль для существующего пользователя."""
+        user = self._users.get_by_id(user_id)
+        if not user:
+            raise ValueError("Пользователь не найден")
+        plain = PasswordService.generate_password()
+        updated = self._users.update(user_id, password_hash=PasswordService.hash_password(plain))
+        self._sessions.delete_for_user(user_id)
+        return updated, plain
 
     def update_user(
         self,

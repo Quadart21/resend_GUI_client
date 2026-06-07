@@ -30,7 +30,7 @@ class UserController:
                 self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             )
             try:
-                user = self._auth.create_user(
+                user, plain_password = self._auth.create_user(
                     body.username,
                     body.password,
                     is_admin=body.is_admin,
@@ -38,7 +38,34 @@ class UserController:
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
-            return {"ok": True, "user": user.to_public_dict()}
+            return {
+                "ok": True,
+                "user": user.to_public_dict(),
+                "credentials": {
+                    "username": user.username,
+                    "password": plain_password,
+                },
+            }
+
+        @router.post("/users/{user_id}/regenerate-password")
+        async def regenerate_password(user_id: str, request: Request) -> dict:
+            actor = self._auth.require_admin(
+                self._auth.require_user(request.cookies.get(SESSION_COOKIE))
+            )
+            if actor.id == user_id:
+                raise HTTPException(status_code=400, detail="Смените пароль в профиле, не через сброс")
+            try:
+                user, plain_password = self._auth.regenerate_password(user_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {
+                "ok": True,
+                "user": user.to_public_dict(),
+                "credentials": {
+                    "username": user.username,
+                    "password": plain_password,
+                },
+            }
 
         @router.put("/users/{user_id}")
         async def update_user(user_id: str, body: UserUpdateDto, request: Request) -> dict:

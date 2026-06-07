@@ -59,7 +59,7 @@ class UserCreateDto(BaseModel):
     """Создание пользователя (админ)."""
 
     username: str = Field(min_length=2, description="Логин")
-    password: str = Field(min_length=4, description="Пароль")
+    password: str = Field(default="", description="Пароль (пустой = сгенерировать автоматически)")
     is_admin: bool = Field(default=False, description="Администратор")
     mailbox_ids: list[str] = Field(default_factory=list, description="Доступные ящики")
 

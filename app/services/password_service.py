@@ -2,12 +2,19 @@
 
 import hashlib
 import secrets
+import string
 
 
 class PasswordService:
     """Создание и проверка хешей паролей."""
 
     _ITERATIONS = 120_000
+    _PASSWORD_ALPHABET = string.ascii_letters + string.digits + "!@#$%&*+-="
+
+    @classmethod
+    def generate_password(cls, length: int = 14) -> str:
+        """Генерирует случайный пароль для нового пользователя."""
+        return "".join(secrets.choice(cls._PASSWORD_ALPHABET) for _ in range(length))
 
     @classmethod
     def hash_password(cls, password: str) -> str:

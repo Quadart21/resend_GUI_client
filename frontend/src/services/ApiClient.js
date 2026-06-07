@@ -52,6 +52,10 @@ export class ApiClient {
     return this.request(`/users/${id}`, { method: 'DELETE' })
   }
 
+  regenerateUserPassword(id) {
+    return this.request(`/users/${id}/regenerate-password`, { method: 'POST' })
+  }
+
   getConfig() {
     return this.request('/config')
   }
