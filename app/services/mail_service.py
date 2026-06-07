@@ -6,27 +6,32 @@ from fastapi import HTTPException
 
 from app.config.manager import ConfigManager
 from app.models.dto import ReplyEmailDto, SendEmailDto
+from app.models.mailbox import Mailbox
 from app.services.resend_client import ResendApiClient
+from app.services.thread_service import Thread, ThreadService
 from app.utils.address_parser import AddressParser
+from app.utils.email_helper import EmailHelper
 
 
 class MailService:
-    """Координирует отправку, получение и ответы на письма."""
+    """Координирует отправку, получение, ящики и цепочки переписки."""
 
     def __init__(self, config_manager: ConfigManager, resend_client: ResendApiClient) -> None:
         self._config = config_manager
         self._client = resend_client
         self._parser = AddressParser()
+        self._threads = ThreadService()
+        self._helper = EmailHelper()
 
-    def _require_from_address(self) -> str:
-        """Проверяет наличие адреса отправителя."""
-        address = self._config.load().from_address()
-        if not address:
-            raise HTTPException(
-                status_code=400,
-                detail="Укажите адрес отправителя в настройках (ваш домен).",
-            )
-        return address
+    def _require_mailbox(self, mailbox_id: str) -> Mailbox:
+        """Возвращает ящик или HTTP 404."""
+        try:
+            box = self._config.require_mailbox(mailbox_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if not box.email:
+            raise HTTPException(status_code=400, detail="У ящика не указан email.")
+        return box
 
     @staticmethod
     def _require_body(html: str, text: str, error_message: str) -> None:
@@ -34,17 +39,86 @@ class MailService:
         if not html.strip() and not text.strip():
             raise HTTPException(status_code=400, detail=error_message)
 
+    def _fetch_all_received(self, max_pages: int = 5) -> list[dict]:
+        """Загружает входящие письма с пагинацией."""
+        items: list[dict] = []
+        after: str | None = None
+        for _ in range(max_pages):
+            result = self._client.list_received(after)
+            batch = result.get("data") or []
+            items.extend(batch)
+            if not result.get("has_more") or not batch:
+                break
+            after = batch[-1]["id"]
+        return items
+
+    def _fetch_all_sent(self, max_pages: int = 5) -> list[dict]:
+        """Загружает отправленные письма с пагинацией."""
+        items: list[dict] = []
+        after: str | None = None
+        for _ in range(max_pages):
+            result = self._client.list_sent(after)
+            batch = result.get("data") or []
+            items.extend(batch)
+            if not result.get("has_more") or not batch:
+                break
+            after = batch[-1]["id"]
+        return items
+
+    def _enrich_received(self, items: list[dict]) -> list[dict]:
+        """Подгружает полное содержимое входящих (для цепочки)."""
+        enriched: list[dict] = []
+        for item in items:
+            try:
+                full = self._client.get_received(item["id"])
+                enriched.append(full)
+            except HTTPException:
+                enriched.append(item)
+        return enriched
+
+    def _enrich_sent(self, items: list[dict]) -> list[dict]:
+        """Подгружает полное содержимое отправленных."""
+        enriched: list[dict] = []
+        for item in items:
+            try:
+                full = self._client.get_sent(item["id"])
+                enriched.append(full)
+            except HTTPException:
+                enriched.append(item)
+        return enriched
+
+    def list_threads(self, mailbox_id: str) -> dict[str, Any]:
+        """Список цепочек переписки для ящика."""
+        mailbox = self._require_mailbox(mailbox_id)
+        received = self._fetch_all_received()
+        sent = self._fetch_all_sent()
+        threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
+        return {
+            "mailbox_id": mailbox_id,
+            "threads": [t.to_summary() for t in threads],
+            "total": len(threads),
+        }
+
+    def get_thread(self, mailbox_id: str, thread_id: str) -> dict[str, Any]:
+        """Полная цепочка с содержимым всех писем."""
+        mailbox = self._require_mailbox(mailbox_id)
+        received = self._enrich_received(self._fetch_all_received())
+        sent = self._enrich_sent(self._fetch_all_sent())
+        thread = self._threads.find_thread(mailbox, thread_id, received, sent)
+        if not thread:
+            raise HTTPException(status_code=404, detail="Цепочка не найдена")
+        return thread.to_detail()
+
     def send_email(self, dto: SendEmailDto) -> dict[str, Any]:
-        """Отправляет новое письмо."""
-        from_addr = self._require_from_address()
+        """Отправляет новое письмо от имени выбранного ящика."""
+        mailbox = self._require_mailbox(dto.mailbox_id)
         to_list = self._parser.parse(dto.to)
         if not to_list:
             raise HTTPException(status_code=400, detail="Укажите получателя.")
-
         self._require_body(dto.html, dto.text, "Текст письма не может быть пустым.")
 
         params: dict[str, Any] = {
-            "from": from_addr,
+            "from": mailbox.from_address(),
             "to": to_list,
             "subject": dto.subject.strip(),
         }
@@ -66,49 +140,66 @@ class MailService:
         result = self._client.send(params)
         return {"ok": True, "data": result}
 
-    def list_sent(self, after: str | None = None) -> dict:
-        """Список отправленных писем."""
-        return self._client.list_sent(after)
-
-    def get_sent(self, email_id: str) -> dict:
-        """Детали отправленного письма."""
-        return self._client.get_sent(email_id)
-
-    def list_received(self, after: str | None = None) -> dict:
-        """Список входящих писем."""
-        return self._client.list_received(after)
-
-    def get_received(self, email_id: str) -> dict:
-        """Детали входящего письма."""
-        return self._client.get_received(email_id)
-
-    def reply_to_received(self, email_id: str, dto: ReplyEmailDto) -> dict[str, Any]:
-        """Отвечает на входящее письмо в той же ветке (In-Reply-To)."""
-        from_addr = self._require_from_address()
+    def reply_in_thread(
+        self,
+        mailbox_id: str,
+        thread_id: str,
+        dto: ReplyEmailDto,
+    ) -> dict[str, Any]:
+        """Отвечает в цепочке с корректными In-Reply-To и References."""
+        mailbox = self._require_mailbox(mailbox_id)
         self._require_body(dto.html, dto.text, "Текст ответа не может быть пустым.")
 
-        original = self._client.get_received(email_id)
-        original_from = original.get("from", "")
-        original_subject = original.get("subject") or "(без темы)"
-        message_id = original.get("message_id")
+        received = self._enrich_received(self._fetch_all_received())
+        sent = self._enrich_sent(self._fetch_all_sent())
+        thread = self._threads.find_thread(mailbox, thread_id, received, sent)
+        if not thread:
+            raise HTTPException(status_code=404, detail="Цепочка не найдена")
 
-        subject = (
-            original_subject
-            if original_subject.lower().startswith("re:")
-            else f"Re: {original_subject}"
-        )
+        recipient = self._resolve_reply_recipient(thread, mailbox)
+        subject = self._resolve_reply_subject(thread)
+        message_ids = self._threads.collect_message_ids(thread)
+        last_id = message_ids[-1] if message_ids else None
 
         params: dict[str, Any] = {
-            "from": from_addr,
-            "to": [original_from] if isinstance(original_from, str) else original_from,
+            "from": mailbox.from_address(),
+            "to": [recipient],
             "subject": subject,
         }
         if dto.html.strip():
             params["html"] = dto.html
         if dto.text.strip():
             params["text"] = dto.text
-        if message_id:
-            params["headers"] = {"In-Reply-To": message_id}
+
+        headers: dict[str, str] = {}
+        if last_id:
+            headers["In-Reply-To"] = last_id
+        if message_ids:
+            headers["References"] = " ".join(message_ids)
+        if headers:
+            params["headers"] = headers
 
         result = self._client.send(params)
         return {"ok": True, "data": result}
+
+    @staticmethod
+    def _resolve_reply_recipient(thread: Thread, mailbox: Mailbox) -> str:
+        """Определяет адрес получателя ответа."""
+        box_email = mailbox.email.lower()
+        for msg in sorted(thread.messages, key=lambda m: m.created_at, reverse=True):
+            if msg.direction == "inbound":
+                return msg.from_addr
+            for addr in msg.to_addrs:
+                if EmailHelper.extract_email(addr) != box_email:
+                    return addr
+        if thread.participants:
+            return thread.participants[0]
+        raise HTTPException(status_code=400, detail="Не удалось определить получателя.")
+
+    @staticmethod
+    def _resolve_reply_subject(thread: Thread) -> str:
+        """Формирует тему ответа."""
+        raw = thread.messages[0].subject if thread.messages else thread.subject
+        if raw.lower().startswith("re:"):
+            return raw
+        return f"Re: {raw}"

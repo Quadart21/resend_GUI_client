@@ -1,8 +1,10 @@
 """Менеджер локального хранения настроек."""
 
 import json
+import uuid
 from pathlib import Path
 
+from app.models.mailbox import MAILBOX_COLORS, Mailbox
 from app.models.settings import AppSettings
 
 
@@ -41,29 +43,76 @@ class ConfigManager:
         )
         return settings
 
-    def update(self, api_key: str | None = None, from_email: str | None = None, from_name: str | None = None) -> AppSettings:
+    def update_api_key(self, api_key: str) -> AppSettings:
         """
-        Обновляет отдельные поля настроек.
+        Обновляет API-ключ.
 
-        Если ``api_key`` передан как пустая строка, существующий ключ сохраняется.
+        Пустая строка означает «не менять».
         """
         current = self.load()
-
-        if from_email is not None:
-            current.from_email = from_email.strip()
-        if from_name is not None:
-            current.from_name = from_name.strip()
-        if api_key is not None and api_key.strip():
+        if api_key.strip():
             current.api_key = api_key.strip()
-
         return self.save(current)
+
+    def require_mailbox(self, mailbox_id: str) -> Mailbox:
+        """Возвращает ящик или выбрасывает ValueError."""
+        box = self.load().get_mailbox(mailbox_id)
+        if not box:
+            raise ValueError(f"Ящик {mailbox_id} не найден")
+        return box
+
+    def list_mailboxes(self) -> list[Mailbox]:
+        """Список всех ящиков."""
+        return self.load().mailboxes
+
+    def add_mailbox(self, name: str, email: str) -> Mailbox:
+        """Добавляет новый почтовый ящик."""
+        settings = self.load()
+        email = email.strip().lower()
+        for box in settings.mailboxes:
+            if box.email == email:
+                raise ValueError(f"Ящик {email} уже существует")
+
+        color = MAILBOX_COLORS[len(settings.mailboxes) % len(MAILBOX_COLORS)]
+        new_box = Mailbox(id=str(uuid.uuid4()), name=name.strip(), email=email, color=color)
+        settings.mailboxes.append(new_box)
+        self.save(settings)
+        return new_box
+
+    def update_mailbox(self, mailbox_id: str, name: str, email: str) -> Mailbox:
+        """Обновляет существующий ящик."""
+        settings = self.load()
+        email = email.strip().lower()
+        target: Mailbox | None = None
+
+        for box in settings.mailboxes:
+            if box.id != mailbox_id and box.email == email:
+                raise ValueError(f"Ящик {email} уже существует")
+
+        for box in settings.mailboxes:
+            if box.id == mailbox_id:
+                box.name = name.strip()
+                box.email = email
+                target = box
+                break
+
+        if not target:
+            raise ValueError(f"Ящик {mailbox_id} не найден")
+
+        self.save(settings)
+        return target
+
+    def delete_mailbox(self, mailbox_id: str) -> None:
+        """Удаляет ящик по ID."""
+        settings = self.load()
+        settings.mailboxes = [b for b in settings.mailboxes if b.id != mailbox_id]
+        self.save(settings)
 
     def public_view(self) -> dict:
         """Возвращает настройки без полного API-ключа (для фронтенда)."""
         settings = self.load()
         return {
-            "from_email": settings.from_email,
-            "from_name": settings.from_name,
             "has_api_key": settings.has_api_key(),
             "api_key_preview": settings.api_key_preview(),
+            "mailboxes": [box.to_dict() for box in settings.mailboxes],
         }

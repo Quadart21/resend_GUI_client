@@ -1,6 +1,6 @@
 """Контроллер настроек приложения."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.config.manager import ConfigManager
 from app.models.dto import ConfigUpdateDto
@@ -21,15 +21,10 @@ class ConfigController:
 
         @router.post("/config")
         async def update_config(body: ConfigUpdateDto) -> dict:
-            saved = self._config.update(
-                api_key=body.api_key,
-                from_email=body.from_email,
-                from_name=body.from_name,
-            )
+            saved = self._config.update_api_key(body.api_key)
             return {
                 "ok": True,
-                "from_email": saved.from_email,
-                "from_name": saved.from_name,
                 "has_api_key": saved.has_api_key(),
                 "api_key_preview": saved.api_key_preview(),
+                "mailboxes": [box.to_dict() for box in saved.mailboxes],
             }

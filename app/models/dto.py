@@ -4,16 +4,29 @@ from pydantic import BaseModel, Field
 
 
 class ConfigUpdateDto(BaseModel):
-    """Тело запроса на обновление настроек."""
+    """Тело запроса на обновление API-ключа."""
 
-    api_key: str = Field(default="", description="API-ключ Resend")
-    from_email: str = Field(default="", description="Email отправителя на вашем домене")
-    from_name: str = Field(default="", description="Отображаемое имя отправителя")
+    api_key: str = Field(default="", description="API-ключ Resend (пустой = не менять)")
+
+
+class MailboxCreateDto(BaseModel):
+    """Создание почтового ящика."""
+
+    name: str = Field(description="Отображаемое имя")
+    email: str = Field(description="Email на вашем домене")
+
+
+class MailboxUpdateDto(BaseModel):
+    """Обновление почтового ящика."""
+
+    name: str = Field(description="Отображаемое имя")
+    email: str = Field(description="Email на вашем домене")
 
 
 class SendEmailDto(BaseModel):
     """Тело запроса на отправку письма."""
 
+    mailbox_id: str = Field(description="ID ящика-отправителя")
     to: str = Field(description="Получатели через запятую")
     subject: str = Field(description="Тема письма")
     html: str = Field(default="", description="HTML-содержимое")
@@ -24,7 +37,8 @@ class SendEmailDto(BaseModel):
 
 
 class ReplyEmailDto(BaseModel):
-    """Тело запроса на ответ входящему письму."""
+    """Тело запроса на ответ в цепочке."""
 
+    mailbox_id: str = Field(description="ID ящика-отправителя")
     html: str = Field(default="", description="HTML-содержимое ответа")
     text: str = Field(default="", description="Текстовое содержимое ответа")
