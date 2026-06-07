@@ -9,10 +9,23 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'changed', 'open-users', 'notify'])
 
+const tabs = [
+  { id: 'integration', label: 'Resend' },
+  { id: 'mailboxes', label: 'Ящики' },
+  { id: 'users', label: 'Пользователи' },
+]
+
+const activeTab = ref('integration')
+
+const hasApiKey = ref(false)
+const apiKeyPreview = ref('')
+const hasWebhookSecret = ref(false)
+const webhookSecretPreview = ref('')
+const editingApiKey = ref(false)
+const editingWebhookSecret = ref(false)
+
 const apiKey = ref('')
-const apiKeyHint = ref('')
 const webhookSecret = ref('')
-const webhookSecretHint = ref('')
 const mailboxes = ref([])
 const newName = ref('')
 const newEmail = ref('')
@@ -23,7 +36,12 @@ const editEmail = ref('')
 
 watch(
   () => props.open,
-  (isOpen) => { if (isOpen) load() },
+  (isOpen) => {
+    if (isOpen) {
+      activeTab.value = 'integration'
+      load()
+    }
+  },
 )
 
 async function loadMailboxes() {
@@ -33,12 +51,25 @@ async function loadMailboxes() {
 
 async function load() {
   const cfg = await api.getConfig()
-  apiKeyHint.value = cfg.has_api_key
-    ? `Текущий: ${cfg.api_key_preview} (оставьте пустым, чтобы не менять)`
-    : 'Ключ ещё не задан'
-  webhookSecretHint.value = cfg.has_webhook_secret
-    ? `Текущий: ${cfg.webhook_secret_preview} (оставьте пустым, чтобы не менять)`
-    : 'Signing secret ещё не задан — webhook без проверки подписи'
+  hasApiKey.value = Boolean(cfg.has_api_key)
+  apiKeyPreview.value = cfg.api_key_preview || ''
+  hasWebhookSecret.value = Boolean(cfg.has_webhook_secret)
+  webhookSecretPreview.value = cfg.webhook_secret_preview || ''
+
+  if (hasApiKey.value) {
+    editingApiKey.value = false
+    apiKey.value = ''
+  } else {
+    editingApiKey.value = true
+  }
+
+  if (hasWebhookSecret.value) {
+    editingWebhookSecret.value = false
+    webhookSecret.value = ''
+  } else {
+    editingWebhookSecret.value = true
+  }
+
   await loadMailboxes()
 }
 
@@ -46,17 +77,36 @@ function toast(msg, type = 'success') {
   emit('notify', msg, type)
 }
 
-async function saveSettings() {
+async function saveApiKey() {
+  if (!apiKey.value.trim()) {
+    toast('Введите API-ключ', 'error')
+    return
+  }
   saving.value = true
   try {
-    await api.saveConfig({
-      api_key: apiKey.value,
-      webhook_secret: webhookSecret.value,
-    })
+    await api.saveConfig({ api_key: apiKey.value, webhook_secret: '' })
     apiKey.value = ''
+    await load()
+    toast('API-ключ сохранён')
+    emit('changed')
+  } catch (err) {
+    toast(err.message, 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function saveWebhookSecret() {
+  if (!webhookSecret.value.trim()) {
+    toast('Введите signing secret', 'error')
+    return
+  }
+  saving.value = true
+  try {
+    await api.saveConfig({ api_key: '', webhook_secret: webhookSecret.value })
     webhookSecret.value = ''
     await load()
-    toast('Настройки сохранены')
+    toast('Webhook secret сохранён')
     emit('changed')
   } catch (err) {
     toast(err.message, 'error')
@@ -135,56 +185,128 @@ defineExpose({ load })
       @click.self="emit('close')"
     >
       <div class="flex max-h-[100dvh] w-full animate-slide-up flex-col overflow-hidden border-border bg-surface shadow-2xl sm:max-h-[90vh] sm:max-w-xl sm:rounded-[14px] sm:border">
-        <header class="flex shrink-0 items-center justify-between border-b border-border px-4 py-4 sm:px-6 sm:py-5">
-          <h2 class="text-[17px] font-bold">Настройки</h2>
-          <button type="button" class="btn-icon" @click="emit('close')">✕</button>
+        <header class="shrink-0 border-b border-border px-4 py-4 sm:px-6 sm:py-5">
+          <div class="flex items-center justify-between">
+            <h2 class="text-[17px] font-bold">Настройки</h2>
+            <button type="button" class="btn-icon" @click="emit('close')">✕</button>
+          </div>
+
+          <nav class="mt-4 flex gap-1 rounded-[10px] bg-surface-elevated p-1">
+            <button
+              v-for="tab in tabs"
+              :key="tab.id"
+              type="button"
+              class="flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm"
+              :class="activeTab === tab.id
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-zinc-400 hover:text-zinc-200'"
+              @click="activeTab = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </nav>
         </header>
 
-        <div class="flex-1 space-y-7 overflow-y-auto p-4 sm:p-6" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
-          <section>
-            <h3 class="mb-1.5 text-sm font-bold">API-ключ Resend</h3>
-            <p class="mb-3.5 text-xs leading-relaxed text-zinc-500">
-              Получите ключ в
-              <a href="https://resend.com/api-keys" target="_blank" class="text-accent-hover hover:underline">Resend Dashboard</a>
-            </p>
-            <form class="space-y-2.5" @submit.prevent="saveSettings">
-              <input v-model="apiKey" type="password" class="input-field" placeholder="re_xxxxxxxx" autocomplete="off" />
-              <small class="block text-[11px] text-zinc-500">{{ apiKeyHint }}</small>
-              <button type="submit" class="btn-primary" :disabled="saving">Сохранить ключ</button>
-            </form>
-          </section>
+        <div class="flex-1 overflow-y-auto p-4 sm:p-6" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+          <!-- Resend: API + Webhook -->
+          <div v-show="activeTab === 'integration'" class="space-y-6">
+            <section class="rounded-[10px] border border-border bg-surface-elevated p-4">
+              <h3 class="mb-1 text-sm font-bold">API-ключ Resend</h3>
+              <p class="mb-3 text-xs leading-relaxed text-zinc-500">
+                Ключ для отправки и получения писем.
+                <a href="https://resend.com/api-keys" target="_blank" class="text-accent-hover hover:underline">Resend Dashboard →</a>
+              </p>
 
-          <section>
-            <h3 class="mb-1.5 text-sm font-bold">Webhook signing secret</h3>
-            <p class="mb-3.5 text-xs leading-relaxed text-zinc-500">
-              Ключ из
-              <a href="https://resend.com/webhooks" target="_blank" class="text-accent-hover hover:underline">Resend → Webhooks</a>
-              (<code class="text-zinc-400">whsec_...</code>)
-            </p>
-            <form class="space-y-2.5" @submit.prevent="saveSettings">
-              <input
-                v-model="webhookSecret"
-                type="password"
-                class="input-field"
-                placeholder="whsec_xxxxxxxx"
-                autocomplete="off"
-              />
-              <small class="block text-[11px] text-zinc-500">{{ webhookSecretHint }}</small>
-              <button type="submit" class="btn-primary" :disabled="saving">Сохранить secret</button>
-            </form>
-          </section>
+              <div
+                v-if="hasApiKey && !editingApiKey"
+                class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-3"
+              >
+                <div>
+                  <p class="text-xs font-medium text-green-400">Настроено</p>
+                  <p class="font-mono text-sm text-zinc-200">{{ apiKeyPreview }}</p>
+                </div>
+                <button type="button" class="btn-secondary text-xs" @click="editingApiKey = true">
+                  Изменить
+                </button>
+              </div>
 
-          <section>
-            <h3 class="mb-1.5 text-sm font-bold">Почтовые ящики</h3>
-            <p class="mb-3.5 text-xs leading-relaxed text-zinc-500">
-              Управление адресами на домене. Входящие фильтруются по полю «Кому».
+              <form v-else class="space-y-2.5" @submit.prevent="saveApiKey">
+                <input
+                  v-model="apiKey"
+                  type="password"
+                  class="input-field"
+                  placeholder="re_xxxxxxxx"
+                  autocomplete="off"
+                  autofocus
+                />
+                <div class="flex gap-2">
+                  <button type="submit" class="btn-primary" :disabled="saving">Сохранить</button>
+                  <button
+                    v-if="hasApiKey"
+                    type="button"
+                    class="btn-ghost"
+                    @click="editingApiKey = false; apiKey = ''"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <section class="rounded-[10px] border border-border bg-surface-elevated p-4">
+              <h3 class="mb-1 text-sm font-bold">Webhook signing secret</h3>
+              <p class="mb-3 text-xs leading-relaxed text-zinc-500">
+                Подпись входящих webhook от Resend (<code class="text-zinc-400">whsec_...</code>).
+                <a href="https://resend.com/webhooks" target="_blank" class="text-accent-hover hover:underline">Webhooks →</a>
+              </p>
+
+              <div
+                v-if="hasWebhookSecret && !editingWebhookSecret"
+                class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-3"
+              >
+                <div>
+                  <p class="text-xs font-medium text-green-400">Настроено</p>
+                  <p class="font-mono text-sm text-zinc-200">{{ webhookSecretPreview }}</p>
+                </div>
+                <button type="button" class="btn-secondary text-xs" @click="editingWebhookSecret = true">
+                  Изменить
+                </button>
+              </div>
+
+              <form v-else class="space-y-2.5" @submit.prevent="saveWebhookSecret">
+                <input
+                  v-model="webhookSecret"
+                  type="password"
+                  class="input-field"
+                  placeholder="whsec_xxxxxxxx"
+                  autocomplete="off"
+                />
+                <div class="flex gap-2">
+                  <button type="submit" class="btn-primary" :disabled="saving">Сохранить</button>
+                  <button
+                    v-if="hasWebhookSecret"
+                    type="button"
+                    class="btn-ghost"
+                    @click="editingWebhookSecret = false; webhookSecret = ''"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+
+          <!-- Ящики -->
+          <div v-show="activeTab === 'mailboxes'" class="space-y-4">
+            <p class="text-xs leading-relaxed text-zinc-500">
+              Адреса на домене. Входящие фильтруются по полю «Кому».
             </p>
 
-            <div v-if="!mailboxes.length" class="mb-3 rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-xs text-zinc-500">
+            <div v-if="!mailboxes.length" class="rounded-[10px] border border-dashed border-border px-3 py-8 text-center text-xs text-zinc-500">
               Ящиков пока нет — добавьте ниже
             </div>
 
-            <div v-else class="mb-3 space-y-2">
+            <div v-else class="space-y-2">
               <div
                 v-for="box in mailboxes"
                 :key="box.id"
@@ -236,22 +358,22 @@ defineExpose({ load })
               </div>
             </div>
 
-            <form class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="addMailbox">
+            <form class="grid grid-cols-1 gap-2 border-t border-border pt-4 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="addMailbox">
               <input v-model="newName" type="text" class="input-field" placeholder="Имя (Поддержка)" required />
               <input v-model="newEmail" type="email" class="input-field" placeholder="support@domain.com" required />
               <button type="submit" class="btn-secondary whitespace-nowrap" :disabled="saving">+ Добавить</button>
             </form>
-          </section>
+          </div>
 
-          <section>
-            <h3 class="mb-1.5 text-sm font-bold">Пользователи и права</h3>
-            <p class="mb-3 text-xs leading-relaxed text-zinc-500">
-              Назначайте пользователям доступ к ящикам.
+          <!-- Пользователи -->
+          <div v-show="activeTab === 'users'" class="space-y-4">
+            <p class="text-xs leading-relaxed text-zinc-500">
+              Учётные записи и доступ к ящикам. Пароль генерируется автоматически при создании.
             </p>
-            <button type="button" class="btn-secondary" @click="emit('open-users')">
+            <button type="button" class="btn-primary w-full sm:w-auto" @click="emit('open-users')">
               Управление пользователями
             </button>
-          </section>
+          </div>
         </div>
       </div>
     </div>
