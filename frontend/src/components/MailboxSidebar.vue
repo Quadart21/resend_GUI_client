@@ -7,11 +7,11 @@ defineProps({
   threadCounts: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['select', 'add', 'compose'])
+const emit = defineEmits(['select', 'add', 'compose', 'settings', 'close'])
 </script>
 
 <template>
-  <aside class="flex w-60 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-surface-elevated p-4">
+  <aside class="flex shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-surface-elevated p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]">
     <!-- Бренд -->
     <div class="flex items-center gap-3 px-2">
       <div class="grid h-10 w-10 shrink-0 place-items-center rounded-[11px] bg-gradient-to-br from-accent to-purple-500 text-white">
@@ -20,14 +20,22 @@ const emit = defineEmits(['select', 'add', 'compose'])
           <polyline points="22,6 12,13 2,6" />
         </svg>
       </div>
-      <div>
+      <div class="min-w-0 flex-1">
         <h1 class="text-[15px] font-bold tracking-tight">Resend Mail</h1>
         <p class="text-[11px] text-zinc-500">Почтовый клиент</p>
       </div>
+      <button
+        type="button"
+        class="btn-icon shrink-0 md:hidden"
+        aria-label="Закрыть меню"
+        @click="emit('close')"
+      >
+        ✕
+      </button>
     </div>
 
     <!-- Написать -->
-    <button class="btn-primary w-full" @click="emit('compose')">
+    <button type="button" class="btn-primary w-full" @click="emit('compose')">
       <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 5v14M5 12h14" />
       </svg>
@@ -45,7 +53,8 @@ const emit = defineEmits(['select', 'add', 'compose'])
       <button
         v-for="box in mailboxes"
         :key="box.id"
-        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition"
+        type="button"
+        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-3 text-left transition active:scale-[0.98] md:py-2"
         :class="box.id === activeId
           ? 'bg-accent-soft text-zinc-100'
           : 'text-zinc-400 hover:bg-surface-hover hover:text-zinc-100'"
@@ -71,7 +80,8 @@ const emit = defineEmits(['select', 'add', 'compose'])
       </button>
 
       <button
-        class="mt-1 rounded-[10px] border border-dashed border-border-light px-2.5 py-2 text-xs text-zinc-500 transition hover:border-accent hover:text-accent-hover"
+        type="button"
+        class="mt-1 rounded-[10px] border border-dashed border-border-light px-2.5 py-2.5 text-xs text-zinc-500 transition hover:border-accent hover:text-accent-hover md:py-2"
         @click="emit('add')"
       >
         + Добавить ящик
@@ -81,7 +91,8 @@ const emit = defineEmits(['select', 'add', 'compose'])
     <!-- Настройки -->
     <nav class="mt-auto">
       <button
-        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] text-zinc-400 transition hover:bg-surface-hover hover:text-zinc-100"
+        type="button"
+        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-3 text-[13px] text-zinc-400 transition hover:bg-surface-hover hover:text-zinc-100 md:py-2"
         @click="emit('settings')"
       >
         <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

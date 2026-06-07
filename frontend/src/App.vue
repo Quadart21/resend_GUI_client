@@ -19,6 +19,7 @@ const loadingThreads = ref(false)
 const loadingThread = ref(false)
 const composeOpen = ref(false)
 const settingsOpen = ref(false)
+const sidebarOpen = ref(false)
 
 const activeMailbox = computed(() =>
   mailboxes.value.find((b) => b.id === activeMailboxId.value) || null,
@@ -31,6 +32,11 @@ const threadCounts = computed(() => {
   }
   return counts
 })
+
+/** На мобильном показываем переписку на весь экран */
+const showConversationMobile = computed(
+  () => Boolean(activeThreadId.value || loadingThread.value),
+)
 
 function notify(msg, type = 'success') {
   toastRef.value?.show(msg, type)
@@ -68,6 +74,7 @@ async function selectMailbox(id) {
   activeMailboxId.value = id
   activeThreadId.value = null
   activeThread.value = null
+  sidebarOpen.value = false
   await loadThreads()
 }
 
@@ -77,7 +84,6 @@ async function openThread(threadId) {
   activeThreadId.value = threadId
   loadingThread.value = true
 
-  // Сразу показываем заголовок из списка, пока грузится тело
   const preview = threads.value.find((t) => t.id === threadId)
   activeThread.value = preview
     ? { ...preview, messages: [] }
@@ -92,6 +98,12 @@ async function openThread(threadId) {
   } finally {
     loadingThread.value = false
   }
+}
+
+function closeConversation() {
+  activeThreadId.value = null
+  activeThread.value = null
+  loadingThread.value = false
 }
 
 function openCompose() {
@@ -147,8 +159,18 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden">
+  <div class="flex h-[100dvh] overflow-hidden">
+    <!-- Затемнение при открытом меню ящиков (моб.) -->
+    <div
+      v-if="sidebarOpen"
+      class="fixed inset-0 z-40 bg-black/60 md:hidden"
+      aria-hidden="true"
+      @click="sidebarOpen = false"
+    />
+
     <MailboxSidebar
+      class="fixed inset-y-0 left-0 z-50 w-[min(18rem,88vw)] transition-transform duration-200 ease-out md:static md:z-auto md:w-60 md:translate-x-0"
+      :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
       :mailboxes="mailboxes"
       :active-id="activeMailboxId"
       :thread-counts="threadCounts"
@@ -156,23 +178,46 @@ onMounted(async () => {
       @compose="openCompose"
       @add="settingsOpen = true"
       @settings="settingsOpen = true"
+      @close="sidebarOpen = false"
     />
 
     <ThreadPanel
+      class="panel w-full shrink-0 md:w-[340px]"
+      :class="showConversationMobile ? 'hidden md:flex' : 'flex'"
       :threads="threads"
       :active-mailbox="activeMailbox"
       :active-thread-id="activeThreadId"
       :loading="loadingThreads"
       @select="openThread"
       @refresh="loadThreads"
+      @menu="sidebarOpen = true"
+      @compose="openCompose"
+      @settings="settingsOpen = true"
     />
 
     <ConversationPanel
+      class="min-w-0 flex-1 flex-col overflow-hidden"
+      :class="showConversationMobile ? 'fixed inset-0 z-30 flex md:static md:z-auto' : 'hidden md:flex'"
       :thread="activeThread"
       :mailbox="activeMailbox"
       :loading="loadingThread"
       @reply="handleReply"
+      @back="closeConversation"
     />
+
+    <!-- FAB «Написать» на мобильном -->
+    <button
+      v-if="!showConversationMobile"
+      type="button"
+      class="fixed bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition active:scale-95 md:hidden"
+      style="margin-bottom: env(safe-area-inset-bottom); margin-right: env(safe-area-inset-right);"
+      title="Написать"
+      @click="openCompose"
+    >
+      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </button>
   </div>
 
   <ComposeModal

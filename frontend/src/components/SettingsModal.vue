@@ -68,16 +68,16 @@ defineExpose({ load })
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[1000] grid place-items-center bg-black/65 p-6 backdrop-blur-sm"
+      class="fixed inset-0 z-[1000] flex items-end justify-center bg-black/65 p-0 backdrop-blur-sm sm:items-center sm:p-6"
       @click.self="emit('close')"
     >
-      <div class="w-full max-w-xl animate-slide-up overflow-y-auto rounded-[14px] border border-border bg-surface shadow-2xl">
-        <header class="flex items-center justify-between border-b border-border px-6 py-5">
+      <div class="flex max-h-[100dvh] w-full animate-slide-up flex-col overflow-hidden border-border bg-surface shadow-2xl sm:max-h-[90vh] sm:max-w-xl sm:rounded-[14px] sm:border">
+        <header class="flex shrink-0 items-center justify-between border-b border-border px-4 py-4 sm:px-6 sm:py-5">
           <h2 class="text-[17px] font-bold">Настройки</h2>
-          <button class="btn-icon" @click="emit('close')">✕</button>
+          <button type="button" class="btn-icon" @click="emit('close')">✕</button>
         </header>
 
-        <div class="space-y-7 p-6">
+        <div class="flex-1 space-y-7 overflow-y-auto p-4 sm:p-6" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
           <!-- API-ключ -->
           <section>
             <h3 class="mb-1.5 text-sm font-bold">API-ключ Resend</h3>
@@ -121,7 +121,7 @@ defineExpose({ load })
               </button>
             </div>
 
-            <form class="mt-3 grid grid-cols-[1fr_1fr_auto] gap-2" @submit.prevent="addMailbox">
+            <form class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="addMailbox">
               <input v-model="newName" type="text" class="input-field" placeholder="Имя (Поддержка)" required />
               <input v-model="newEmail" type="email" class="input-field" placeholder="support@domain.com" required />
               <button type="submit" class="btn-secondary whitespace-nowrap" :disabled="saving">Добавить</button>

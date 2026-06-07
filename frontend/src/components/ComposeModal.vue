@@ -48,16 +48,16 @@ function submit() {
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[1000] grid place-items-center bg-black/65 p-6 backdrop-blur-sm"
+      class="fixed inset-0 z-[1000] flex items-end justify-center bg-black/65 p-0 backdrop-blur-sm sm:items-center sm:p-6"
       @click.self="emit('close')"
     >
-      <div class="w-full max-w-lg animate-slide-up overflow-y-auto rounded-[14px] border border-border bg-surface shadow-2xl">
-        <header class="flex items-center justify-between border-b border-border px-6 py-5">
+      <div class="flex max-h-[100dvh] w-full animate-slide-up flex-col overflow-hidden border-border bg-surface shadow-2xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-[14px] sm:border">
+        <header class="flex shrink-0 items-center justify-between border-b border-border px-4 py-4 sm:px-6 sm:py-5">
           <h2 class="text-[17px] font-bold">Новое письмо</h2>
-          <button class="btn-icon" @click="emit('close')">✕</button>
+          <button type="button" class="btn-icon" @click="emit('close')">✕</button>
         </header>
 
-        <form class="space-y-3.5 p-6" @submit.prevent="submit">
+        <form class="flex-1 space-y-3.5 overflow-y-auto p-4 sm:p-6" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));" @submit.prevent="submit">
           <label class="block">
             <span class="mb-1.5 block text-xs font-semibold text-zinc-400">От ящика</span>
             <select v-model="mailboxId" class="input-field" required>
@@ -72,7 +72,7 @@ function submit() {
             <input v-model="to" type="text" class="input-field" required placeholder="email@example.com" />
           </label>
 
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label class="block">
               <span class="mb-1.5 block text-xs font-semibold text-zinc-400">CC</span>
               <input v-model="cc" type="text" class="input-field" placeholder="необязательно" />

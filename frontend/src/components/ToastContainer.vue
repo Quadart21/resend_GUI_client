@@ -23,7 +23,8 @@ defineExpose({ show })
     <Transition name="toast">
       <div
         v-if="visible"
-        class="fixed bottom-6 right-6 z-[2000] max-w-sm animate-slide-up rounded-[10px] border bg-surface px-5 py-3.5 text-sm shadow-2xl"
+        class="fixed z-[2000] max-w-[calc(100vw-2rem)] animate-slide-up rounded-[10px] border bg-surface px-5 py-3.5 text-sm shadow-2xl"
+        style="bottom: max(1.5rem, env(safe-area-inset-bottom)); right: max(1.5rem, env(safe-area-inset-right)); left: auto;"
         :class="type === 'error' ? 'border-red-500' : 'border-green-500'"
       >
         {{ message }}

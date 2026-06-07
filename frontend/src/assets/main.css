@@ -3,8 +3,19 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
-    @apply min-h-screen overflow-hidden;
+    @apply min-h-[100dvh] overflow-hidden;
+  }
+
+  /* iOS не зумит поля при фокусе, если font-size >= 16px */
+  @media (max-width: 767px) {
+    .input-field {
+      font-size: 16px;
+    }
   }
 }
 
