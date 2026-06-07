@@ -12,8 +12,6 @@ const emit = defineEmits(['close', 'send'])
 
 const mailboxId = ref('')
 const to = ref('')
-const cc = ref('')
-const bcc = ref('')
 const subject = ref('')
 const body = ref('')
 
@@ -23,8 +21,6 @@ watch(
     if (isOpen) {
       mailboxId.value = props.activeMailboxId || props.mailboxes[0]?.id || ''
       to.value = ''
-      cc.value = ''
-      bcc.value = ''
       subject.value = ''
       body.value = ''
     }
@@ -35,8 +31,6 @@ function submit() {
   emit('send', {
     mailbox_id: mailboxId.value,
     to: to.value,
-    cc: cc.value,
-    bcc: bcc.value,
     subject: subject.value,
     html: `<p>${FormatHelper.escapeHtml(body.value).replace(/\n/g, '<br>')}</p>`,
     text: body.value,
@@ -71,17 +65,6 @@ function submit() {
             <span class="mb-1.5 block text-xs font-semibold text-zinc-400">Кому</span>
             <input v-model="to" type="text" class="input-field" required placeholder="email@example.com" />
           </label>
-
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label class="block">
-              <span class="mb-1.5 block text-xs font-semibold text-zinc-400">CC</span>
-              <input v-model="cc" type="text" class="input-field" placeholder="необязательно" />
-            </label>
-            <label class="block">
-              <span class="mb-1.5 block text-xs font-semibold text-zinc-400">BCC</span>
-              <input v-model="bcc" type="text" class="input-field" placeholder="необязательно" />
-            </label>
-          </div>
 
           <label class="block">
             <span class="mb-1.5 block text-xs font-semibold text-zinc-400">Тема</span>
