@@ -1,0 +1,46 @@
+# Resend GUI Client — Docker Compose
+# Домен: webmail.kubex.me
+
+services:
+  webmail:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resend-gui
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+    volumes:
+      # SQLite: ящики, письма, API-ключ — сохраняются между перезапусками
+      - resend_data:/app/data
+    networks:
+      - webmail_net
+    # Профиль «dev»: приложение доступно напрямую на :8080
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: resend-gui-nginx
+    restart: unless-stopped
+    profiles:
+      - prod
+    depends_on:
+      webmail:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/docker/certs:/etc/nginx/certs:ro
+    networks:
+      - webmail_net
+
+volumes:
+  resend_data:
+    name: resend_gui_data
+
+networks:
+  webmail_net:
+    name: resend_gui_net

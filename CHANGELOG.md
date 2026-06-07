@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.0] — 2026-06-07
+
+### Добавлено
+- **Docker**: multi-stage Dockerfile (Vue build + Python)
+- `docker-compose.yml` с volume для SQLite
+- Nginx-контейнер (profile `prod`) для `webmail.kubex.me`
+- Скрипт `deploy/docker/init-letsencrypt.sh` для SSL
+- Документация [deploy/DOCKER.md](deploy/DOCKER.md)
+
 ## [1.3.0] — 2026-06-07
 
 ### Добавлено
