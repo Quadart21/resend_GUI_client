@@ -23,7 +23,7 @@ class PageController:
                 from fastapi.responses import HTMLResponse
                 return HTMLResponse(
                     content=(
-                        "<h1>Resend GUI Client</h1>"
+                        "<h1>Почтовый клиент Kubex.me</h1>"
                         "<p>Фронтенд не собран. Выполните: "
                         "<code>cd frontend && npm install && npm run build</code></p>"
                     ),

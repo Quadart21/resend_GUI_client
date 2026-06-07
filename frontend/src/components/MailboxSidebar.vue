@@ -26,8 +26,8 @@ const emit = defineEmits([
         </svg>
       </div>
       <div class="min-w-0 flex-1">
-        <h1 class="text-[15px] font-bold tracking-tight">Resend Mail</h1>
-        <p class="text-[11px] text-zinc-500">Почтовый клиент</p>
+        <h1 class="text-[14px] font-bold leading-tight tracking-tight">Почтовый клиент</h1>
+        <p class="text-[12px] font-semibold text-accent-hover">Kubex.me</p>
       </div>
       <button
         type="button"

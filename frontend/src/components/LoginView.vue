@@ -37,8 +37,8 @@ async function submit() {
           </svg>
         </div>
         <div>
-          <h1 class="text-lg font-bold">Resend Mail</h1>
-          <p class="text-xs text-zinc-500">Вход в почтовый клиент</p>
+          <h1 class="text-lg font-bold leading-snug">Почтовый клиент Kubex.me</h1>
+          <p class="text-xs text-zinc-500">Вход в почту</p>
         </div>
       </div>
 

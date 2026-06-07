@@ -95,8 +95,8 @@ class WebApplication:
     def create(self) -> FastAPI:
         """Создаёт и возвращает настроенное FastAPI-приложение."""
         app = FastAPI(
-            title="Resend GUI Client",
-            description="Почтовый клиент для отправки и получения писем через Resend",
+            title="Почтовый клиент Kubex.me",
+            description="Почтовый веб-клиент Kubex.me",
             version=__version__,
         )
 
