@@ -7,7 +7,7 @@ const props = defineProps({
   open: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'changed', 'open-users'])
+const emit = defineEmits(['close', 'changed', 'open-users', 'notify'])
 
 const apiKey = ref('')
 const apiKeyHint = ref('')
@@ -17,11 +17,19 @@ const mailboxes = ref([])
 const newName = ref('')
 const newEmail = ref('')
 const saving = ref(false)
+const editingId = ref(null)
+const editName = ref('')
+const editEmail = ref('')
 
 watch(
   () => props.open,
   (isOpen) => { if (isOpen) load() },
 )
+
+async function loadMailboxes() {
+  const data = await api.listMailboxes()
+  mailboxes.value = data.mailboxes || []
+}
 
 async function load() {
   const cfg = await api.getConfig()
@@ -31,7 +39,11 @@ async function load() {
   webhookSecretHint.value = cfg.has_webhook_secret
     ? `Текущий: ${cfg.webhook_secret_preview} (оставьте пустым, чтобы не менять)`
     : 'Signing secret ещё не задан — webhook без проверки подписи'
-  mailboxes.value = cfg.mailboxes || []
+  await loadMailboxes()
+}
+
+function toast(msg, type = 'success') {
+  emit('notify', msg, type)
 }
 
 async function saveSettings() {
@@ -44,7 +56,10 @@ async function saveSettings() {
     apiKey.value = ''
     webhookSecret.value = ''
     await load()
+    toast('Настройки сохранены')
     emit('changed')
+  } catch (err) {
+    toast(err.message, 'error')
   } finally {
     saving.value = false
   }
@@ -53,21 +68,60 @@ async function saveSettings() {
 async function addMailbox() {
   saving.value = true
   try {
-    await api.createMailbox(newName.value, newEmail.value)
+    await api.createMailbox(newName.value.trim(), newEmail.value.trim())
     newName.value = ''
     newEmail.value = ''
-    await load()
+    await loadMailboxes()
+    toast('Ящик добавлен')
     emit('changed')
+  } catch (err) {
+    toast(err.message, 'error')
   } finally {
     saving.value = false
   }
 }
 
-async function deleteMailbox(id) {
-  if (!confirm('Удалить этот ящик?')) return
-  await api.deleteMailbox(id)
-  await load()
-  emit('changed')
+function startEdit(box) {
+  editingId.value = box.id
+  editName.value = box.name || ''
+  editEmail.value = box.email || ''
+}
+
+function cancelEdit() {
+  editingId.value = null
+  editName.value = ''
+  editEmail.value = ''
+}
+
+async function saveEdit(id) {
+  saving.value = true
+  try {
+    await api.updateMailbox(id, editName.value.trim(), editEmail.value.trim())
+    cancelEdit()
+    await loadMailboxes()
+    toast('Ящик обновлён')
+    emit('changed')
+  } catch (err) {
+    toast(err.message, 'error')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function deleteMailbox(id, label) {
+  if (!confirm(`Удалить ящик «${label}»?`)) return
+  saving.value = true
+  try {
+    await api.deleteMailbox(id)
+    if (editingId.value === id) cancelEdit()
+    await loadMailboxes()
+    toast('Ящик удалён')
+    emit('changed')
+  } catch (err) {
+    toast(err.message, 'error')
+  } finally {
+    saving.value = false
+  }
 }
 
 defineExpose({ load })
@@ -87,7 +141,6 @@ defineExpose({ load })
         </header>
 
         <div class="flex-1 space-y-7 overflow-y-auto p-4 sm:p-6" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
-          <!-- API-ключ -->
           <section>
             <h3 class="mb-1.5 text-sm font-bold">API-ключ Resend</h3>
             <p class="mb-3.5 text-xs leading-relaxed text-zinc-500">
@@ -101,13 +154,12 @@ defineExpose({ load })
             </form>
           </section>
 
-          <!-- Webhook signing secret -->
           <section>
             <h3 class="mb-1.5 text-sm font-bold">Webhook signing secret</h3>
             <p class="mb-3.5 text-xs leading-relaxed text-zinc-500">
-              Ключ подписи из
+              Ключ из
               <a href="https://resend.com/webhooks" target="_blank" class="text-accent-hover hover:underline">Resend → Webhooks</a>
-              (начинается с <code class="text-zinc-400">whsec_</code>). Защищает endpoint от поддельных запросов.
+              (<code class="text-zinc-400">whsec_...</code>)
             </p>
             <form class="space-y-2.5" @submit.prevent="saveSettings">
               <input
@@ -122,46 +174,79 @@ defineExpose({ load })
             </form>
           </section>
 
-          <!-- Ящики -->
           <section>
             <h3 class="mb-1.5 text-sm font-bold">Почтовые ящики</h3>
             <p class="mb-3.5 text-xs leading-relaxed text-zinc-500">
-              Каждый ящик — отдельный адрес на домене. Входящие фильтруются по полю «Кому».
+              Управление адресами на домене. Входящие фильтруются по полю «Кому».
             </p>
 
-            <div v-if="!mailboxes.length" class="mb-3 text-xs text-zinc-500">Ящиков пока нет</div>
-
-            <div
-              v-for="box in mailboxes"
-              :key="box.id"
-              class="mb-2 flex items-center gap-2.5 rounded-[10px] border border-border bg-surface-elevated px-3 py-2.5"
-            >
-              <div
-                class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-[11px] font-bold text-white"
-                :style="{ background: box.color }"
-              >
-                {{ FormatHelper.initials(box.name, box.email) }}
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-[13px] font-semibold">{{ box.name || box.email }}</div>
-                <div class="truncate text-[11px] text-zinc-500">{{ box.email }}</div>
-              </div>
-              <button type="button" class="text-xs text-red-400 hover:underline" @click="deleteMailbox(box.id)">
-                Удалить
-              </button>
+            <div v-if="!mailboxes.length" class="mb-3 rounded-[10px] border border-dashed border-border px-3 py-4 text-center text-xs text-zinc-500">
+              Ящиков пока нет — добавьте ниже
             </div>
 
-            <form class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="addMailbox">
+            <div v-else class="mb-3 space-y-2">
+              <div
+                v-for="box in mailboxes"
+                :key="box.id"
+                class="rounded-[10px] border border-border bg-surface-elevated p-3"
+              >
+                <template v-if="editingId === box.id">
+                  <form class="space-y-2" @submit.prevent="saveEdit(box.id)">
+                    <input v-model="editName" type="text" class="input-field" placeholder="Имя" required />
+                    <input v-model="editEmail" type="email" class="input-field" placeholder="email@domain.com" required />
+                    <div class="flex justify-end gap-2">
+                      <button type="button" class="btn-ghost text-xs" @click="cancelEdit">Отмена</button>
+                      <button type="submit" class="btn-primary text-xs" :disabled="saving">Сохранить</button>
+                    </div>
+                  </form>
+                </template>
+
+                <template v-else>
+                  <div class="flex items-center gap-2.5">
+                    <div
+                      class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[11px] font-bold text-white"
+                      :style="{ background: box.color }"
+                    >
+                      {{ FormatHelper.initials(box.name, box.email) }}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-[13px] font-semibold">{{ box.name || box.email }}</div>
+                      <div class="truncate text-[11px] text-zinc-500">{{ box.email }}</div>
+                    </div>
+                    <div class="flex shrink-0 gap-1">
+                      <button type="button" class="btn-icon h-8 w-8" title="Редактировать" @click="startEdit(box)">
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                          <path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-icon h-8 w-8 text-red-400 hover:text-red-300"
+                        title="Удалить"
+                        @click="deleteMailbox(box.id, box.name || box.email)"
+                      >
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <form class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]" @submit.prevent="addMailbox">
               <input v-model="newName" type="text" class="input-field" placeholder="Имя (Поддержка)" required />
               <input v-model="newEmail" type="email" class="input-field" placeholder="support@domain.com" required />
-              <button type="submit" class="btn-secondary whitespace-nowrap" :disabled="saving">Добавить</button>
+              <button type="submit" class="btn-secondary whitespace-nowrap" :disabled="saving">+ Добавить</button>
             </form>
           </section>
 
           <section>
             <h3 class="mb-1.5 text-sm font-bold">Пользователи и права</h3>
             <p class="mb-3 text-xs leading-relaxed text-zinc-500">
-              Создавайте учётные записи и назначайте доступ к одному или нескольким ящикам.
+              Назначайте пользователям доступ к ящикам.
             </p>
             <button type="button" class="btn-secondary" @click="emit('open-users')">
               Управление пользователями

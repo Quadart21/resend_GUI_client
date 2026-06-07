@@ -4,13 +4,13 @@ import { api } from '@/services/ApiClient'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
-  mailboxes: { type: Array, default: () => [] },
   currentUserId: { type: String, default: null },
 })
 
-const emit = defineEmits(['close', 'changed'])
+const emit = defineEmits(['close', 'changed', 'notify'])
 
 const users = ref([])
+const mailboxes = ref([])
 const loading = ref(false)
 const saving = ref(false)
 
@@ -27,8 +27,14 @@ watch(
 async function load() {
   loading.value = true
   try {
-    const data = await api.listUsers()
-    users.value = data.users || []
+    const [usersData, boxesData] = await Promise.all([
+      api.listUsers(),
+      api.listMailboxes(),
+    ])
+    users.value = usersData.users || []
+    mailboxes.value = boxesData.mailboxes || []
+  } catch (err) {
+    emit('notify', err.message, 'error')
   } finally {
     loading.value = false
   }
@@ -95,7 +101,7 @@ async function saveMailboxes(user, mailboxIds) {
 }
 
 function mailboxLabel(id) {
-  const box = props.mailboxes.find((b) => b.id === id)
+  const box = mailboxes.value.find((b) => b.id === id)
   return box ? (box.name || box.email) : id
 }
 </script>
@@ -158,7 +164,9 @@ function mailboxLabel(id) {
 
               <div v-if="!user.is_admin" class="space-y-2">
                 <p class="text-xs text-zinc-500">Доступ к ящикам:</p>
-                <div v-if="!mailboxes.length" class="text-xs text-zinc-500">Сначала создайте ящики</div>
+                <div v-if="!mailboxes.length" class="text-xs text-amber-400/90">
+                  Ящиков нет — добавьте в Настройках → Почтовые ящики
+                </div>
                 <label
                   v-for="box in mailboxes"
                   :key="box.id"

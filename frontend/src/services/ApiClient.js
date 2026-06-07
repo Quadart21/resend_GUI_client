@@ -72,6 +72,17 @@ export class ApiClient {
     return this.request(`/mailboxes/${id}`, { method: 'DELETE' })
   }
 
+  listMailboxes() {
+    return this.request('/mailboxes')
+  }
+
+  updateMailbox(id, name, email) {
+    return this.request(`/mailboxes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, email }),
+    })
+  }
+
   listThreads(mailboxId, sync = false) {
     const q = sync ? '?sync=true' : ''
     return this.request(`/mailboxes/${mailboxId}/threads${q}`)

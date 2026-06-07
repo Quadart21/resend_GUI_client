@@ -62,7 +62,16 @@ async function bootstrapApp() {
 
 async function loadConfig() {
   const cfg = await api.getConfig()
-  mailboxes.value = cfg.mailboxes || []
+  if (isAdmin.value) {
+    try {
+      const boxes = await api.listMailboxes()
+      mailboxes.value = boxes.mailboxes || []
+    } catch {
+      mailboxes.value = cfg.mailboxes || []
+    }
+  } else {
+    mailboxes.value = cfg.mailboxes || []
+  }
   if (!activeMailboxId.value && mailboxes.value.length) {
     activeMailboxId.value = mailboxes.value[0].id
   }
@@ -369,15 +378,16 @@ onUnmounted(() => {
       @close="settingsOpen = false"
       @changed="onSettingsChanged"
       @open-users="usersOpen = true"
+      @notify="notify"
     />
 
     <UsersModal
       v-if="isAdmin"
       :open="usersOpen"
-      :mailboxes="mailboxes"
       :current-user-id="user.id"
       @close="usersOpen = false"
       @changed="onSettingsChanged"
+      @notify="notify"
     />
   </template>
 
