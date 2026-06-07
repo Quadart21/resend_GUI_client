@@ -32,10 +32,14 @@
 Полная инструкция для **webmail.kubex.me**: [deploy/DOCKER.md](deploy/DOCKER.md)
 
 ```bash
-git clone https://github.com/Quadart21/resend_GUI_client.git && cd resend_GUI_client && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=you@kubex.me bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
+curl -fsSL https://get.docker.com | sh && systemctl enable docker && systemctl start docker && git clone https://github.com/Quadart21/resend_GUI_client.git && cd resend_GUI_client && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=you@kubex.me bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
 ```
 
-Обновление на сервере:
+Если репозиторий уже есть — только Docker и продолжение:
+
+```bash
+curl -fsSL https://get.docker.com | sh && systemctl enable docker && systemctl start docker && cd ~/resend_GUI_client && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=you@kubex.me bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
+```
 
 ```bash
 cd resend_GUI_client && git pull && docker compose --profile prod up -d --build

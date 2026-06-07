@@ -30,26 +30,29 @@ Internet → https://webmail.kubex.me (:443)
 ## 2. Установка Docker (если ещё нет)
 
 ```bash
-curl -fsSL https://get.docker.com | sh
-systemctl enable docker
-systemctl start docker
-docker compose version
+curl -fsSL https://get.docker.com | sh && systemctl enable docker && systemctl start docker && docker compose version
 ```
 
 ---
 
 ## 3. Установка одной командой
 
-DNS `webmail.kubex.me` → IP сервера, порт **80** свободен:
+**С нуля** (Docker + git + SSL + запуск). DNS `webmail.kubex.me` → IP сервера, порт **80** свободен:
 
 ```bash
-mkdir -p /opt/resend-gui && cd /opt/resend-gui && git clone https://github.com/Quadart21/resend_GUI_client.git . && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
+curl -fsSL https://get.docker.com | sh && systemctl enable docker && systemctl start docker && git clone https://github.com/Quadart21/resend_GUI_client.git && cd resend_GUI_client && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
 ```
 
-Или без `/opt` (в домашней папке):
+В `/opt`:
 
 ```bash
-git clone https://github.com/Quadart21/resend_GUI_client.git && cd resend_GUI_client && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
+curl -fsSL https://get.docker.com | sh && systemctl enable docker && systemctl start docker && mkdir -p /opt/resend-gui && cd /opt/resend-gui && git clone https://github.com/Quadart21/resend_GUI_client.git . && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
+```
+
+**Репозиторий уже склонирован** (как у вас сейчас):
+
+```bash
+curl -fsSL https://get.docker.com | sh && systemctl enable docker && systemctl start docker && cd ~/resend_GUI_client && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
 ```
 
 Сертификаты появятся в `deploy/docker/certs/` (`fullchain.pem`, `privkey.pem`).
