@@ -26,6 +26,7 @@ class WebApplication:
     def __init__(self, base_dir: Path | None = None) -> None:
         self._base_dir = base_dir or Path(__file__).resolve().parent.parent.parent
         self._static_dir = self._base_dir / "static"
+        self._assets_dir = self._static_dir / "assets"
 
         # Слой конфигурации
         self._config_manager = ConfigManager(self._base_dir / "config.json")
@@ -55,5 +56,8 @@ class WebApplication:
         self._mail_controller.register(api_router)
         app.include_router(api_router)
 
-        app.mount("/static", StaticFiles(directory=self._static_dir), name="static")
+        # Статика Vue-сборки (JS/CSS из Vite → static/assets/)
+        if self._assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=self._assets_dir), name="assets")
+
         return app

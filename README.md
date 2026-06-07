@@ -2,6 +2,13 @@
 
 Почтовый веб-клиент для отправки и получения писем с вашего домена через [Resend API](https://resend.com/docs/introduction).
 
+## Стек
+
+| Слой | Технологии |
+|------|------------|
+| Frontend | **Vue 3**, **Tailwind CSS**, Vite |
+| Backend | Python, FastAPI (OOP, REST API) |
+
 ## Возможности
 
 - **Несколько почтовых ящиков** — каждый адрес на домене как отдельный ящик
@@ -13,6 +20,7 @@
 ## Требования
 
 - Python 3.11+
+- Node.js 20+ (для сборки фронтенда)
 - API-ключ Resend
 - Верифицированный домен в Resend
 - Настроенный Receiving для приёма входящих ([документация](https://resend.com/docs/dashboard/receiving/introduction))
@@ -22,58 +30,56 @@
 ```bash
 git clone https://github.com/Quadart21/resend_GUI_client.git
 cd resend_GUI_client
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+
+# Сборка фронтенда
+cd frontend && npm ci && npm run build && cd ..
 ```
 
 ## Запуск
 
 ```bash
-# Через скрипт
-chmod +x start.sh
-./start.sh
+# Автоматически соберёт фронтенд, если нужно
+chmod +x start.sh && ./start.sh
 
-# Или напрямую
+# Или напрямую (после npm run build)
 uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-Откройте в браузере: `http://<IP-сервера>:8080`
+Откройте: `http://<IP-сервера>:8080`
+
+## Разработка
+
+```bash
+# Терминал 1 — API
+uvicorn main:app --host 127.0.0.1 --port 8080 --reload
+
+# Терминал 2 — Vue dev-сервер (hot reload, proxy /api)
+cd frontend && npm install && npm run dev
+```
+
+Dev-сервер: `http://localhost:5173`
 
 ## Настройка
 
-1. Откройте **Настройки** (иконка внизу сайдбара)
-2. Укажите API-ключ из [Resend Dashboard](https://resend.com/api-keys)
-3. Добавьте один или несколько ящиков (например `hello@domain.com`, `support@domain.com`)
-4. Выберите ящик в сайдбаре — отобразятся его переписки
+1. **Настройки** → API-ключ из [Resend Dashboard](https://resend.com/api-keys)
+2. Добавьте ящики (`hello@domain.com`, `support@domain.com`)
+3. Выберите ящик в сайдбаре → переписки этого ящика
 
-Файл `config.json` создаётся автоматически и не попадает в git.
-
-## Systemd (опционально)
-
-```bash
-sudo cp deploy/resend-gui.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable resend-gui
-sudo systemctl start resend-gui
-```
-
-## Архитектура (ООП)
+## Архитектура
 
 ```
-app/
-├── config/          ConfigManager — локальные настройки и ящики
-├── models/          AppSettings, Mailbox, DTO-модели
+frontend/src/        Vue 3 + Tailwind (компоненты, services/)
+app/                 FastAPI backend (OOP)
+├── config/          ConfigManager
+├── models/          AppSettings, Mailbox, DTO
 ├── services/        ResendApiClient, MailService, ThreadService
-├── utils/           AddressParser, EmailHelper
-└── web/
-    ├── application.py   WebApplication — сборка FastAPI
-    └── controllers/     Page, Config, Mailbox, Mail
-static/              HTML, CSS, JS (классы)
+└── web/controllers/ REST API
+static/              Сборка Vite (npm run build)
 main.py              Точка входа
 ```
 
 ## Релизы
 
-Версии публикуются на [GitHub Releases](https://github.com/Quadart21/resend_GUI_client/releases).
-Текущая версия указана в файле `VERSION`.
+[GitHub Releases](https://github.com/Quadart21/resend_GUI_client/releases) · версия в `VERSION`

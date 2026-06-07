@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0] — 2026-06-07
+
+### Изменено
+- Фронтенд переписан на **Vue 3 + Tailwind CSS** (Vite)
+- Backend FastAPI остаётся REST API, статика — сборка Vue в `static/`
+
+### Добавлено
+- `frontend/` — исходники Vue-компонентов
+- Автосборка фронтенда в `start.sh` и GitHub Actions
+- Режим разработки: `npm run dev` с proxy на API
+
 ## [1.1.0] — 2026-06-07
 
 ### Добавлено
