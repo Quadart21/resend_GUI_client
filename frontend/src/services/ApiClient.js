@@ -8,6 +8,7 @@ export class ApiClient {
 
   async request(path, options = {}) {
     const response = await fetch(`${this.baseUrl}${path}`, {
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json', ...options.headers },
       ...options,
     })
@@ -18,6 +19,37 @@ export class ApiClient {
       throw new Error(msg || `Ошибка ${response.status}`)
     }
     return data
+  }
+
+  login(username, password) {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    })
+  }
+
+  logout() {
+    return this.request('/auth/logout', { method: 'POST' })
+  }
+
+  me() {
+    return this.request('/auth/me')
+  }
+
+  listUsers() {
+    return this.request('/users')
+  }
+
+  createUser(body) {
+    return this.request('/users', { method: 'POST', body: JSON.stringify(body) })
+  }
+
+  updateUser(id, body) {
+    return this.request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(body) })
+  }
+
+  deleteUser(id) {
+    return this.request(`/users/${id}`, { method: 'DELETE' })
   }
 
   getConfig() {

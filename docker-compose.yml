@@ -10,6 +10,8 @@ services:
     restart: unless-stopped
     environment:
       PORT: "8080"
+      ADMIN_USERNAME: "admin"
+      ADMIN_PASSWORD: "changeme"
     volumes:
       # SQLite: ящики, письма, API-ключ — сохраняются между перезапусками
       - resend_data:/app/data

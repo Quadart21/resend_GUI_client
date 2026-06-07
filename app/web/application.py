@@ -8,14 +8,19 @@ from fastapi.staticfiles import StaticFiles
 from app.config.manager import ConfigManager
 from app.db.database import DatabaseManager
 from app.repositories.email_repository import EmailRepository
+from app.repositories.session_repository import SessionRepository
+from app.repositories.user_repository import UserRepository
+from app.services.auth_service import AuthService
 from app.services.mail_service import MailService
 from app.services.resend_client import ResendApiClient
 from app.services.sync_service import SyncService
 from app.version import __version__
+from app.web.controllers.auth_controller import AuthController
 from app.web.controllers.config_controller import ConfigController
 from app.web.controllers.mail_controller import MailController
 from app.web.controllers.mailbox_controller import MailboxController
 from app.web.controllers.page_controller import PageController
+from app.web.controllers.user_controller import UserController
 from app.web.controllers.webhook_controller import WebhookController
 
 
@@ -40,6 +45,13 @@ class WebApplication:
             legacy_json_path=self._base_dir / "config.json",
         )
         self._email_repository = EmailRepository(self._database)
+        self._user_repository = UserRepository(self._database)
+        self._session_repository = SessionRepository(self._database)
+
+        # Авторизация
+        self._auth_service = AuthService(self._user_repository, self._session_repository)
+        self._auth_service.bootstrap_if_empty()
+        self._session_repository.purge_expired()
 
         # Сервисы
         self._resend_client = ResendApiClient(self._config_manager)
@@ -57,10 +69,12 @@ class WebApplication:
 
         # Контроллеры
         self._page_controller = PageController(self._static_dir)
-        self._config_controller = ConfigController(self._config_manager)
-        self._mailbox_controller = MailboxController(self._config_manager)
-        self._mail_controller = MailController(self._mail_service)
-        self._webhook_controller = WebhookController(self._mail_service)
+        self._auth_controller = AuthController(self._auth_service)
+        self._user_controller = UserController(self._auth_service)
+        self._config_controller = ConfigController(self._config_manager, self._auth_service)
+        self._mailbox_controller = MailboxController(self._config_manager, self._auth_service)
+        self._mail_controller = MailController(self._mail_service, self._auth_service)
+        self._webhook_controller = WebhookController(self._mail_service, self._auth_service)
 
     def create(self) -> FastAPI:
         """Создаёт и возвращает настроенное FastAPI-приложение."""
@@ -72,6 +86,8 @@ class WebApplication:
 
         api_router = APIRouter(prefix="/api")
         self._page_controller.register(app.router)
+        self._auth_controller.register(api_router)
+        self._user_controller.register(api_router)
         self._config_controller.register(api_router)
         self._mailbox_controller.register(api_router)
         self._mail_controller.register(api_router)

@@ -80,15 +80,30 @@ class ConfigManager:
     def delete_mailbox(self, mailbox_id: str) -> None:
         self._mailboxes.delete(mailbox_id)
 
-    def public_view(self) -> dict:
-        """Публичные настройки для фронтенда."""
-        return {
+    def public_view(self, user=None) -> dict:
+        """Публичные настройки для фронтенда (с учётом прав пользователя)."""
+        mailboxes = self._mailboxes.list_all()
+        if user and not user.is_admin:
+            allowed = set(user.mailbox_ids)
+            mailboxes = [b for b in mailboxes if b.id in allowed]
+
+        data = {
             "has_api_key": self._settings.has_api_key(),
-            "api_key_preview": self._settings.api_key_preview(),
-            "mailboxes": [b.to_dict() for b in self._mailboxes.list_all()],
-            "db_path": str(self._db.path.name),
+            "mailboxes": [b.to_dict() for b in mailboxes],
             "emails_stored": self._settings.get("emails_count", "0"),
         }
+        if user and user.is_admin:
+            data["api_key_preview"] = self._settings.api_key_preview()
+            data["db_path"] = str(self._db.path.name)
+        return data
+
+    def list_mailboxes_for_user(self, user) -> list:
+        """Ящики, доступные текущему пользователю."""
+        boxes = self._mailboxes.list_all()
+        if user.is_admin:
+            return boxes
+        allowed = set(user.mailbox_ids)
+        return [b for b in boxes if b.id in allowed]
 
     @property
     def settings_repo(self) -> SettingsRepository:

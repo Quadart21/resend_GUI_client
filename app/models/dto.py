@@ -42,3 +42,28 @@ class ReplyEmailDto(BaseModel):
     mailbox_id: str = Field(description="ID ящика-отправителя")
     html: str = Field(default="", description="HTML-содержимое ответа")
     text: str = Field(default="", description="Текстовое содержимое ответа")
+
+
+class LoginDto(BaseModel):
+    """Вход в систему."""
+
+    username: str = Field(min_length=1, description="Логин")
+    password: str = Field(min_length=1, description="Пароль")
+
+
+class UserCreateDto(BaseModel):
+    """Создание пользователя (админ)."""
+
+    username: str = Field(min_length=2, description="Логин")
+    password: str = Field(min_length=4, description="Пароль")
+    is_admin: bool = Field(default=False, description="Администратор")
+    mailbox_ids: list[str] = Field(default_factory=list, description="Доступные ящики")
+
+
+class UserUpdateDto(BaseModel):
+    """Обновление пользователя (админ)."""
+
+    password: str | None = Field(default=None, min_length=4, description="Новый пароль")
+    is_admin: bool | None = Field(default=None, description="Администратор")
+    is_active: bool | None = Field(default=None, description="Активен")
+    mailbox_ids: list[str] | None = Field(default=None, description="Доступные ящики")

@@ -5,9 +5,11 @@ defineProps({
   mailboxes: { type: Array, default: () => [] },
   activeId: { type: String, default: null },
   threadCounts: { type: Object, default: () => ({}) },
+  isAdmin: { type: Boolean, default: false },
+  username: { type: String, default: '' },
 })
 
-const emit = defineEmits(['select', 'add', 'compose', 'settings', 'close'])
+const emit = defineEmits(['select', 'add', 'compose', 'settings', 'users', 'logout', 'close'])
 </script>
 
 <template>
@@ -47,7 +49,7 @@ const emit = defineEmits(['select', 'add', 'compose', 'settings', 'close'])
       <p class="px-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Почтовые ящики</p>
 
       <div v-if="!mailboxes.length" class="px-2 py-4 text-center text-xs text-zinc-500">
-        Добавьте ящик в настройках
+        {{ isAdmin ? 'Добавьте ящик в настройках' : 'Нет доступных ящиков' }}
       </div>
 
       <button
@@ -80,6 +82,7 @@ const emit = defineEmits(['select', 'add', 'compose', 'settings', 'close'])
       </button>
 
       <button
+        v-if="isAdmin"
         type="button"
         class="mt-1 rounded-[10px] border border-dashed border-border-light px-2.5 py-2.5 text-xs text-zinc-500 transition hover:border-accent hover:text-accent-hover md:py-2"
         @click="emit('add')"
@@ -88,9 +91,10 @@ const emit = defineEmits(['select', 'add', 'compose', 'settings', 'close'])
       </button>
     </div>
 
-    <!-- Настройки -->
-    <nav class="mt-auto">
+    <nav class="mt-auto space-y-1">
+      <p v-if="username" class="truncate px-2.5 text-[11px] text-zinc-500">{{ username }}</p>
       <button
+        v-if="isAdmin"
         type="button"
         class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-3 text-[13px] text-zinc-400 transition hover:bg-surface-hover hover:text-zinc-100 md:py-2"
         @click="emit('settings')"
@@ -100,6 +104,29 @@ const emit = defineEmits(['select', 'add', 'compose', 'settings', 'close'])
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
         </svg>
         Настройки
+      </button>
+      <button
+        v-if="isAdmin"
+        type="button"
+        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-3 text-[13px] text-zinc-400 transition hover:bg-surface-hover hover:text-zinc-100 md:py-2"
+        @click="emit('users')"
+      >
+        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+        </svg>
+        Пользователи
+      </button>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-3 text-[13px] text-zinc-400 transition hover:bg-surface-hover hover:text-zinc-100 md:py-2"
+        @click="emit('logout')"
+      >
+        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
+        </svg>
+        Выйти
       </button>
     </nav>
   </aside>

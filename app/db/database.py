@@ -41,6 +41,34 @@ class DatabaseManager:
 
     CREATE INDEX IF NOT EXISTS idx_emails_created ON emails(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_emails_source ON emails(source);
+
+    CREATE TABLE IF NOT EXISTS users (
+        id            TEXT PRIMARY KEY,
+        username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        is_admin      INTEGER NOT NULL DEFAULT 0,
+        is_active     INTEGER NOT NULL DEFAULT 1,
+        created_at    TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_mailboxes (
+        user_id    TEXT NOT NULL,
+        mailbox_id TEXT NOT NULL,
+        PRIMARY KEY (user_id, mailbox_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (mailbox_id) REFERENCES mailboxes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+        token      TEXT PRIMARY KEY,
+        user_id    TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     """
 
     def __init__(self, db_path: Path | None = None) -> None:

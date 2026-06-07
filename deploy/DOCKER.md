@@ -79,9 +79,11 @@ docker compose ps && docker compose logs --tail=20 webmail && curl -I https://we
 
 ## 6. Первичная настройка в GUI
 
-1. **Настройки** → API-ключ Resend (`re_...`)
-2. Добавьте **почтовые ящики** (email на вашем домене в Resend)
-3. **Resend → Webhooks** → Add Webhook:
+1. **Вход** — логин/пароль администратора (при первом запуске из `ADMIN_USERNAME` / `ADMIN_PASSWORD` в `docker-compose.yml`, по умолчанию `admin` / `changeme` — **смените!**)
+2. **Настройки** → API-ключ Resend (`re_...`)
+3. Добавьте **почтовые ящики** (email на вашем домене в Resend)
+4. **Пользователи** → создайте учётки и отметьте доступные ящики
+5. **Resend → Webhooks** → Add Webhook:
    - URL: `https://webmail.kubex.me/api/webhooks/resend`
    - Event: `email.received`
 

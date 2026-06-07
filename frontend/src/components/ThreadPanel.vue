@@ -7,9 +7,10 @@ const props = defineProps({
   activeMailbox: { type: Object, default: null },
   activeThreadId: { type: String, default: null },
   loading: { type: Boolean, default: false },
+  isAdmin: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['select', 'refresh', 'menu', 'compose', 'settings'])
+const emit = defineEmits(['select', 'refresh', 'menu', 'compose', 'settings', 'logout'])
 
 const search = ref('')
 const filtered = ref([])
@@ -50,10 +51,15 @@ watch(
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
         </svg>
       </button>
-      <button type="button" class="btn-icon shrink-0" title="Настройки" @click="emit('settings')">
+      <button v-if="isAdmin" type="button" class="btn-icon shrink-0" title="Настройки" @click="emit('settings')">
         <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3" />
           <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+        </svg>
+      </button>
+      <button type="button" class="btn-icon shrink-0" title="Выйти" @click="emit('logout')">
+        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
         </svg>
       </button>
     </header>

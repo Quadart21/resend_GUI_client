@@ -7,7 +7,7 @@ const props = defineProps({
   open: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['close', 'changed'])
+const emit = defineEmits(['close', 'changed', 'open-users'])
 
 const apiKey = ref('')
 const apiKeyHint = ref('')
@@ -126,6 +126,16 @@ defineExpose({ load })
               <input v-model="newEmail" type="email" class="input-field" placeholder="support@domain.com" required />
               <button type="submit" class="btn-secondary whitespace-nowrap" :disabled="saving">Добавить</button>
             </form>
+          </section>
+
+          <section>
+            <h3 class="mb-1.5 text-sm font-bold">Пользователи и права</h3>
+            <p class="mb-3 text-xs leading-relaxed text-zinc-500">
+              Создавайте учётные записи и назначайте доступ к одному или нескольким ящикам.
+            </p>
+            <button type="button" class="btn-secondary" @click="emit('open-users')">
+              Управление пользователями
+            </button>
           </section>
         </div>
       </div>

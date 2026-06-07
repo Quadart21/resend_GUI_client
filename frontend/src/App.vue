@@ -2,14 +2,18 @@
 import { ref, computed, onMounted } from 'vue'
 import { api } from '@/services/ApiClient'
 import { FormatHelper } from '@/services/FormatHelper'
+import LoginView from '@/components/LoginView.vue'
 import MailboxSidebar from '@/components/MailboxSidebar.vue'
 import ThreadPanel from '@/components/ThreadPanel.vue'
 import ConversationPanel from '@/components/ConversationPanel.vue'
 import ComposeModal from '@/components/ComposeModal.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
+import UsersModal from '@/components/UsersModal.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 
 const toastRef = ref(null)
+const user = ref(null)
+const authLoading = ref(true)
 const mailboxes = ref([])
 const activeMailboxId = ref(null)
 const threads = ref([])
@@ -19,7 +23,10 @@ const loadingThreads = ref(false)
 const loadingThread = ref(false)
 const composeOpen = ref(false)
 const settingsOpen = ref(false)
+const usersOpen = ref(false)
 const sidebarOpen = ref(false)
+
+const isAdmin = computed(() => Boolean(user.value?.is_admin))
 
 const activeMailbox = computed(() =>
   mailboxes.value.find((b) => b.id === activeMailboxId.value) || null,
@@ -33,13 +40,17 @@ const threadCounts = computed(() => {
   return counts
 })
 
-/** На мобильном показываем переписку на весь экран */
 const showConversationMobile = computed(
   () => Boolean(activeThreadId.value || loadingThread.value),
 )
 
 function notify(msg, type = 'success') {
   toastRef.value?.show(msg, type)
+}
+
+async function bootstrapApp() {
+  await loadConfig()
+  await loadThreads()
 }
 
 async function loadConfig() {
@@ -85,9 +96,7 @@ async function openThread(threadId) {
   loadingThread.value = true
 
   const preview = threads.value.find((t) => t.id === threadId)
-  activeThread.value = preview
-    ? { ...preview, messages: [] }
-    : null
+  activeThread.value = preview ? { ...preview, messages: [] } : null
 
   try {
     activeThread.value = await api.getThread(activeMailboxId.value, threadId)
@@ -108,8 +117,8 @@ function closeConversation() {
 
 function openCompose() {
   if (!mailboxes.value.length) {
-    notify('Сначала добавьте почтовый ящик в настройках', 'error')
-    settingsOpen.value = true
+    notify(isAdmin.value ? 'Сначала добавьте почтовый ящик в настройках' : 'Нет доступных ящиков', 'error')
+    if (isAdmin.value) settingsOpen.value = true
     return
   }
   composeOpen.value = true
@@ -148,91 +157,144 @@ async function onSettingsChanged() {
   await loadThreads()
 }
 
+async function onLogin(loggedInUser) {
+  user.value = loggedInUser
+  await bootstrapApp()
+}
+
+async function logout() {
+  try {
+    await api.logout()
+  } catch {
+    /* cookie всё равно сбросится на клиенте */
+  }
+  user.value = null
+  mailboxes.value = []
+  threads.value = []
+  activeMailboxId.value = null
+  activeThreadId.value = null
+  activeThread.value = null
+}
+
+function openAdminPanel() {
+  if (isAdmin.value) settingsOpen.value = true
+}
+
+function openUsersPanel() {
+  if (isAdmin.value) usersOpen.value = true
+}
+
 onMounted(async () => {
   try {
-    await loadConfig()
-    await loadThreads()
-  } catch (err) {
-    notify(err.message, 'error')
+    const data = await api.me()
+    user.value = data.user
+    await bootstrapApp()
+  } catch {
+    user.value = null
+  } finally {
+    authLoading.value = false
   }
 })
 </script>
 
 <template>
-  <div class="flex h-[100dvh] overflow-hidden">
-    <!-- Затемнение при открытом меню ящиков (моб.) -->
-    <div
-      v-if="sidebarOpen"
-      class="fixed inset-0 z-40 bg-black/60 md:hidden"
-      aria-hidden="true"
-      @click="sidebarOpen = false"
-    />
-
-    <MailboxSidebar
-      class="fixed inset-y-0 left-0 z-50 w-[min(18rem,88vw)] transition-transform duration-200 ease-out md:static md:z-auto md:w-60 md:translate-x-0"
-      :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
-      :mailboxes="mailboxes"
-      :active-id="activeMailboxId"
-      :thread-counts="threadCounts"
-      @select="selectMailbox"
-      @compose="openCompose"
-      @add="settingsOpen = true"
-      @settings="settingsOpen = true"
-      @close="sidebarOpen = false"
-    />
-
-    <ThreadPanel
-      class="panel w-full shrink-0 md:w-[340px]"
-      :class="showConversationMobile ? 'hidden md:flex' : 'flex'"
-      :threads="threads"
-      :active-mailbox="activeMailbox"
-      :active-thread-id="activeThreadId"
-      :loading="loadingThreads"
-      @select="openThread"
-      @refresh="loadThreads"
-      @menu="sidebarOpen = true"
-      @compose="openCompose"
-      @settings="settingsOpen = true"
-    />
-
-    <ConversationPanel
-      class="min-w-0 flex-1 flex-col overflow-hidden"
-      :class="showConversationMobile ? 'fixed inset-0 z-30 flex md:static md:z-auto' : 'hidden md:flex'"
-      :thread="activeThread"
-      :mailbox="activeMailbox"
-      :loading="loadingThread"
-      @reply="handleReply"
-      @back="closeConversation"
-    />
-
-    <!-- FAB «Написать» на мобильном -->
-    <button
-      v-if="!showConversationMobile"
-      type="button"
-      class="fixed bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition active:scale-95 md:hidden"
-      style="margin-bottom: env(safe-area-inset-bottom); margin-right: env(safe-area-inset-right);"
-      title="Написать"
-      @click="openCompose"
-    >
-      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 5v14M5 12h14" />
-      </svg>
-    </button>
+  <div v-if="authLoading" class="grid h-[100dvh] place-items-center bg-[#09090b] text-zinc-500">
+    <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-border border-t-accent" />
   </div>
 
-  <ComposeModal
-    :open="composeOpen"
-    :mailboxes="mailboxes"
-    :active-mailbox-id="activeMailboxId"
-    @close="composeOpen = false"
-    @send="handleSend"
-  />
+  <LoginView v-else-if="!user" @login="onLogin" />
 
-  <SettingsModal
-    :open="settingsOpen"
-    @close="settingsOpen = false"
-    @changed="onSettingsChanged"
-  />
+  <template v-else>
+    <div class="flex h-[100dvh] overflow-hidden">
+      <div
+        v-if="sidebarOpen"
+        class="fixed inset-0 z-40 bg-black/60 md:hidden"
+        aria-hidden="true"
+        @click="sidebarOpen = false"
+      />
+
+      <MailboxSidebar
+        class="fixed inset-y-0 left-0 z-50 w-[min(18rem,88vw)] transition-transform duration-200 ease-out md:static md:z-auto md:w-60 md:translate-x-0"
+        :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
+        :mailboxes="mailboxes"
+        :active-id="activeMailboxId"
+        :thread-counts="threadCounts"
+        :is-admin="isAdmin"
+        :username="user.username"
+        @select="selectMailbox"
+        @compose="openCompose"
+        @add="settingsOpen = true"
+        @settings="openAdminPanel"
+        @users="openUsersPanel"
+        @logout="logout"
+        @close="sidebarOpen = false"
+      />
+
+      <ThreadPanel
+        class="panel w-full shrink-0 md:w-[340px]"
+        :class="showConversationMobile ? 'hidden md:flex' : 'flex'"
+        :threads="threads"
+        :active-mailbox="activeMailbox"
+        :active-thread-id="activeThreadId"
+        :loading="loadingThreads"
+        :is-admin="isAdmin"
+        @select="openThread"
+        @refresh="loadThreads"
+        @menu="sidebarOpen = true"
+        @compose="openCompose"
+        @settings="openAdminPanel"
+        @logout="logout"
+      />
+
+      <ConversationPanel
+        class="min-w-0 flex-1 flex-col overflow-hidden"
+        :class="showConversationMobile ? 'fixed inset-0 z-30 flex md:static md:z-auto' : 'hidden md:flex'"
+        :thread="activeThread"
+        :mailbox="activeMailbox"
+        :loading="loadingThread"
+        @reply="handleReply"
+        @back="closeConversation"
+      />
+
+      <button
+        v-if="!showConversationMobile && mailboxes.length"
+        type="button"
+        class="fixed bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition active:scale-95 md:hidden"
+        style="margin-bottom: env(safe-area-inset-bottom); margin-right: env(safe-area-inset-right);"
+        title="Написать"
+        @click="openCompose"
+      >
+        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+    </div>
+
+    <ComposeModal
+      :open="composeOpen"
+      :mailboxes="mailboxes"
+      :active-mailbox-id="activeMailboxId"
+      @close="composeOpen = false"
+      @send="handleSend"
+    />
+
+    <SettingsModal
+      v-if="isAdmin"
+      :open="settingsOpen"
+      @close="settingsOpen = false"
+      @changed="onSettingsChanged"
+      @open-users="usersOpen = true"
+    />
+
+    <UsersModal
+      v-if="isAdmin"
+      :open="usersOpen"
+      :mailboxes="mailboxes"
+      :current-user-id="user.id"
+      @close="usersOpen = false"
+      @changed="onSettingsChanged"
+    />
+  </template>
 
   <ToastContainer ref="toastRef" />
 </template>
