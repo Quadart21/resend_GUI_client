@@ -12,6 +12,8 @@ services:
       PORT: "8080"
       ADMIN_USERNAME: "admin"
       ADMIN_PASSWORD: "changeme"
+      # Signing secret webhook Resend (whsec_...) — можно задать здесь или в GUI
+      # RESEND_WEBHOOK_SECRET: "whsec_xxxxxxxx"
     volumes:
       # SQLite: ящики, письма, API-ключ — сохраняются между перезапусками
       - resend_data:/app/data

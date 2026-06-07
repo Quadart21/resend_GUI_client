@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.2] — 2026-06-08
+
+### Добавлено
+- **Проверка подписи webhook** Resend (Svix, signing secret `whsec_...`)
+- Поле signing secret в настройках админа или env `RESEND_WEBHOOK_SECRET`
+
 ## [1.5.1] — 2026-06-08
 
 ### Добавлено

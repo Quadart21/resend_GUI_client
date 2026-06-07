@@ -11,6 +11,8 @@ const emit = defineEmits(['close', 'changed', 'open-users'])
 
 const apiKey = ref('')
 const apiKeyHint = ref('')
+const webhookSecret = ref('')
+const webhookSecretHint = ref('')
 const mailboxes = ref([])
 const newName = ref('')
 const newEmail = ref('')
@@ -26,14 +28,21 @@ async function load() {
   apiKeyHint.value = cfg.has_api_key
     ? `Текущий: ${cfg.api_key_preview} (оставьте пустым, чтобы не менять)`
     : 'Ключ ещё не задан'
+  webhookSecretHint.value = cfg.has_webhook_secret
+    ? `Текущий: ${cfg.webhook_secret_preview} (оставьте пустым, чтобы не менять)`
+    : 'Signing secret ещё не задан — webhook без проверки подписи'
   mailboxes.value = cfg.mailboxes || []
 }
 
-async function saveApiKey() {
+async function saveSettings() {
   saving.value = true
   try {
-    await api.saveApiKey(apiKey.value)
+    await api.saveConfig({
+      api_key: apiKey.value,
+      webhook_secret: webhookSecret.value,
+    })
     apiKey.value = ''
+    webhookSecret.value = ''
     await load()
     emit('changed')
   } finally {
@@ -85,10 +94,31 @@ defineExpose({ load })
               Получите ключ в
               <a href="https://resend.com/api-keys" target="_blank" class="text-accent-hover hover:underline">Resend Dashboard</a>
             </p>
-            <form class="space-y-2.5" @submit.prevent="saveApiKey">
+            <form class="space-y-2.5" @submit.prevent="saveSettings">
               <input v-model="apiKey" type="password" class="input-field" placeholder="re_xxxxxxxx" autocomplete="off" />
               <small class="block text-[11px] text-zinc-500">{{ apiKeyHint }}</small>
               <button type="submit" class="btn-primary" :disabled="saving">Сохранить ключ</button>
+            </form>
+          </section>
+
+          <!-- Webhook signing secret -->
+          <section>
+            <h3 class="mb-1.5 text-sm font-bold">Webhook signing secret</h3>
+            <p class="mb-3.5 text-xs leading-relaxed text-zinc-500">
+              Ключ подписи из
+              <a href="https://resend.com/webhooks" target="_blank" class="text-accent-hover hover:underline">Resend → Webhooks</a>
+              (начинается с <code class="text-zinc-400">whsec_</code>). Защищает endpoint от поддельных запросов.
+            </p>
+            <form class="space-y-2.5" @submit.prevent="saveSettings">
+              <input
+                v-model="webhookSecret"
+                type="password"
+                class="input-field"
+                placeholder="whsec_xxxxxxxx"
+                autocomplete="off"
+              />
+              <small class="block text-[11px] text-zinc-500">{{ webhookSecretHint }}</small>
+              <button type="submit" class="btn-primary" :disabled="saving">Сохранить secret</button>
             </form>
           </section>
 

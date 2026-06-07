@@ -56,8 +56,12 @@ export class ApiClient {
     return this.request('/config')
   }
 
+  saveConfig(body) {
+    return this.request('/config', { method: 'POST', body: JSON.stringify(body) })
+  }
+
   saveApiKey(api_key) {
-    return this.request('/config', { method: 'POST', body: JSON.stringify({ api_key }) })
+    return this.saveConfig({ api_key, webhook_secret: '' })
   }
 
   createMailbox(name, email) {

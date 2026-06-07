@@ -4,9 +4,13 @@ from pydantic import BaseModel, Field
 
 
 class ConfigUpdateDto(BaseModel):
-    """Тело запроса на обновление API-ключа."""
+    """Тело запроса на обновление настроек."""
 
     api_key: str = Field(default="", description="API-ключ Resend (пустой = не менять)")
+    webhook_secret: str = Field(
+        default="",
+        description="Signing secret webhook Resend whsec_... (пустой = не менять)",
+    )
 
 
 class MailboxCreateDto(BaseModel):

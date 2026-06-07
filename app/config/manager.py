@@ -1,6 +1,7 @@
 """Менеджер конфигурации на базе SQLite."""
 
 import json
+import os
 from pathlib import Path
 
 from app.db.database import DatabaseManager
@@ -61,6 +62,33 @@ class ConfigManager:
             self._settings.set_api_key(api_key.strip())
         return self.load()
 
+    def update_webhook_secret(self, webhook_secret: str) -> AppSettings:
+        """Обновляет signing secret webhook (пустая строка = не менять)."""
+        if webhook_secret.strip():
+            self._settings.set_webhook_secret(webhook_secret.strip())
+        return self.load()
+
+    def update_settings(self, api_key: str, webhook_secret: str) -> AppSettings:
+        """Обновляет API-ключ и/или webhook secret."""
+        if api_key.strip():
+            self._settings.set_api_key(api_key.strip())
+        if webhook_secret.strip():
+            self._settings.set_webhook_secret(webhook_secret.strip())
+        return self.load()
+
+    def resolve_webhook_secret(self) -> str:
+        """Секрет для проверки подписи (env приоритетнее БД)."""
+        env = os.getenv("RESEND_WEBHOOK_SECRET", "").strip()
+        if env:
+            return env
+        return self._settings.get_webhook_secret().strip()
+
+    def webhook_secret_preview(self) -> str:
+        secret = self.resolve_webhook_secret()
+        if not secret:
+            return ""
+        return secret[:10] + "..."
+
     def require_mailbox(self, mailbox_id: str):
         """Возвращает ящик или ValueError."""
         box = self._mailboxes.get_by_id(mailbox_id)
@@ -94,6 +122,8 @@ class ConfigManager:
         }
         if user and user.is_admin:
             data["api_key_preview"] = self._settings.api_key_preview()
+            data["has_webhook_secret"] = bool(self.resolve_webhook_secret())
+            data["webhook_secret_preview"] = self.webhook_secret_preview()
             data["db_path"] = str(self._db.path.name)
         return data
 

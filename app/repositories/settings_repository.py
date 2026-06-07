@@ -44,6 +44,21 @@ class SettingsRepository:
             return ""
         return key[:8] + "..."
 
+    def get_webhook_secret(self) -> str:
+        return self.get("webhook_secret")
+
+    def set_webhook_secret(self, secret: str) -> None:
+        self.set("webhook_secret", secret)
+
+    def has_webhook_secret(self) -> bool:
+        return bool(self.get_webhook_secret().strip())
+
+    def webhook_secret_preview(self) -> str:
+        secret = self.get_webhook_secret()
+        if not secret:
+            return ""
+        return secret[:10] + "..."
+
     def is_json_migrated(self) -> bool:
         return self.get("migrated_from_json") == "1"
 

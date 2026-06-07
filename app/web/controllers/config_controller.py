@@ -1,6 +1,6 @@
 """Контроллер настроек приложения."""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
 from app.config.manager import ConfigManager
 from app.models.dto import ConfigUpdateDto
@@ -24,14 +24,15 @@ class ConfigController:
 
         @router.post("/config")
         async def update_config(body: ConfigUpdateDto, request: Request) -> dict:
-            user = self._auth.require_admin(
+            self._auth.require_admin(
                 self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             )
-            _ = user
-            saved = self._config.update_api_key(body.api_key)
+            saved = self._config.update_settings(body.api_key, body.webhook_secret)
             return {
                 "ok": True,
                 "has_api_key": saved.has_api_key(),
                 "api_key_preview": saved.api_key_preview(),
+                "has_webhook_secret": bool(self._config.resolve_webhook_secret()),
+                "webhook_secret_preview": self._config.webhook_secret_preview(),
                 "mailboxes": [box.to_dict() for box in saved.mailboxes],
             }
