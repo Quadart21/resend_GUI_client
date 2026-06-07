@@ -1,7 +1,11 @@
-# Локальная конфигурация с API-ключом
+# Локальная конфигурация (legacy, мигрируется в SQLite)
 config.json
 .env
 .env.*
+
+# SQLite
+data/
+*.db
 
 # Python
 __pycache__/

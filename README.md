@@ -7,7 +7,7 @@
 | Слой | Технологии |
 |------|------------|
 | Frontend | **Vue 3**, **Tailwind CSS**, Vite |
-| Backend | Python, FastAPI (OOP, REST API) |
+| Backend | Python, FastAPI, **SQLite** (OOP, REST API) |
 
 ## Возможности
 
@@ -75,16 +75,28 @@ Dev-сервер: `http://localhost:5173`
 2. Добавьте ящики (`hello@domain.com`, `support@domain.com`)
 3. Выберите ящик в сайдбаре → переписки этого ящика
 
+Данные хранятся в `data/resend_gui.db` (не сбрасываются при перезапуске).  
+Старый `config.json` автоматически мигрирует в БД.
+
+### Webhook для входящих (опционально)
+
+В [Resend → Webhooks](https://resend.com/webhooks):
+
+- URL: `https://ваш-сервер:8080/api/webhooks/resend`
+- Событие: `email.received`
+
 ## Архитектура
 
 ```
-frontend/src/        Vue 3 + Tailwind (компоненты, services/)
-app/                 FastAPI backend (OOP)
+frontend/src/        Vue 3 + Tailwind
+app/
+├── db/              DatabaseManager (SQLite)
+├── repositories/    Settings, Mailbox, Email
 ├── config/          ConfigManager
-├── models/          AppSettings, Mailbox, DTO
-├── services/        ResendApiClient, MailService, ThreadService
-└── web/controllers/ REST API
-static/              Сборка Vite (npm run build)
+├── services/        SyncService, MailService, ResendApiClient
+└── web/controllers/ REST API + webhook
+data/resend_gui.db   Ящики, письма, API-ключ
+static/              Сборка Vite
 main.py              Точка входа
 ```
 

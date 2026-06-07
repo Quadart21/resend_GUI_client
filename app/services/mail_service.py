@@ -1,4 +1,4 @@
-"""Бизнес-логика работы с почтой."""
+"""Бизнес-логика работы с почтой (данные из SQLite + синхронизация Resend)."""
 
 from typing import Any
 
@@ -7,24 +7,33 @@ from fastapi import HTTPException
 from app.config.manager import ConfigManager
 from app.models.dto import ReplyEmailDto, SendEmailDto
 from app.models.mailbox import Mailbox
+from app.repositories.email_repository import EmailRepository
 from app.services.resend_client import ResendApiClient
+from app.services.sync_service import SyncService
 from app.services.thread_service import Thread, ThreadService
 from app.utils.address_parser import AddressParser
 from app.utils.email_helper import EmailHelper
 
 
 class MailService:
-    """Координирует отправку, получение, ящики и цепочки переписки."""
+    """Координирует отправку, локальное хранение и цепочки переписки."""
 
-    def __init__(self, config_manager: ConfigManager, resend_client: ResendApiClient) -> None:
+    def __init__(
+        self,
+        config_manager: ConfigManager,
+        resend_client: ResendApiClient,
+        email_repository: EmailRepository,
+        sync_service: SyncService,
+    ) -> None:
         self._config = config_manager
         self._client = resend_client
+        self._emails = email_repository
+        self._sync = sync_service
         self._parser = AddressParser()
         self._threads = ThreadService()
         self._helper = EmailHelper()
 
     def _require_mailbox(self, mailbox_id: str) -> Mailbox:
-        """Возвращает ящик или HTTP 404."""
         try:
             box = self._config.require_mailbox(mailbox_id)
         except ValueError as exc:
@@ -35,44 +44,35 @@ class MailService:
 
     @staticmethod
     def _require_body(html: str, text: str, error_message: str) -> None:
-        """Проверяет, что тело письма не пустое."""
         if not html.strip() and not text.strip():
             raise HTTPException(status_code=400, detail=error_message)
 
-    def _fetch_all_received(self, max_pages: int = 5) -> list[dict]:
-        """Загружает входящие письма с пагинацией."""
-        items: list[dict] = []
-        after: str | None = None
-        for _ in range(max_pages):
-            result = self._client.list_received(after)
-            batch = result.get("data") or []
-            items.extend(batch)
-            if not result.get("has_more") or not batch:
-                break
-            after = batch[-1]["id"]
-        return items
+    def sync_mailbox(self) -> dict[str, Any]:
+        """Синхронизирует письма с Resend в SQLite."""
+        return self._sync.sync_all()
 
-    def _fetch_all_sent(self, max_pages: int = 5) -> list[dict]:
-        """Загружает отправленные письма с пагинацией."""
-        items: list[dict] = []
-        after: str | None = None
-        for _ in range(max_pages):
-            result = self._client.list_sent(after)
-            batch = result.get("data") or []
-            items.extend(batch)
-            if not result.get("has_more") or not batch:
-                break
-            after = batch[-1]["id"]
-        return items
+    def _emails_from_db(self) -> tuple[list[dict], list[dict]]:
+        """Читает входящие и исходящие из локальной БД."""
+        return self._emails.list_received(), self._emails.list_sent()
 
-    def _enrich_thread_messages(self, thread: Thread) -> None:
-        """Подгружает содержимое только для писем выбранной цепочки."""
+    def _enrich_thread_from_db_or_api(self, thread: Thread) -> None:
+        """Дополняет тело письма из БД или Resend API."""
         for msg in thread.messages:
+            stored = self._emails.get_by_id(msg.id)
+            if stored:
+                msg.html = stored.get("html")
+                msg.text = stored.get("text")
+                if stored.get("message_id"):
+                    msg.message_id = stored.get("message_id")
+                if stored.get("last_event"):
+                    msg.last_event = stored.get("last_event")
+                continue
             try:
                 if msg.source == "received":
                     full = self._client.get_received(msg.id)
                 else:
                     full = self._client.get_sent(msg.id)
+                self._emails.upsert_from_api(full, msg.source)
                 msg.html = full.get("html")
                 msg.text = full.get("text")
                 if full.get("message_id"):
@@ -81,35 +81,33 @@ class MailService:
                 continue
 
     def _find_thread_fast(self, mailbox: Mailbox, thread_id: str) -> Thread | None:
-        """Быстро находит цепочку по ID без загрузки тел писем."""
-        received = self._fetch_all_received()
-        sent = self._fetch_all_sent()
-        threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
+        received, sent = self._emails_from_db()
+        threads = self._threads.build_threads(mailbox, received, sent, include_details=True)
         return next((t for t in threads if t.id == thread_id), None)
 
-    def list_threads(self, mailbox_id: str) -> dict[str, Any]:
-        """Список цепочек переписки для ящика."""
+    def list_threads(self, mailbox_id: str, sync: bool = True) -> dict[str, Any]:
+        """Список цепочек: синхронизация + чтение из SQLite."""
         mailbox = self._require_mailbox(mailbox_id)
-        received = self._fetch_all_received()
-        sent = self._fetch_all_sent()
+        sync_info = self._sync.sync_all() if sync else {"skipped": True}
+        received, sent = self._emails_from_db()
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
         return {
             "mailbox_id": mailbox_id,
             "threads": [t.to_summary() for t in threads],
             "total": len(threads),
+            "sync": sync_info,
         }
 
     def get_thread(self, mailbox_id: str, thread_id: str) -> dict[str, Any]:
-        """Полная цепочка с содержимым писем (загружает только её письма)."""
+        """Полная цепочка из SQLite."""
         mailbox = self._require_mailbox(mailbox_id)
         thread = self._find_thread_fast(mailbox, thread_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
-        self._enrich_thread_messages(thread)
+        self._enrich_thread_from_db_or_api(thread)
         return thread.to_detail()
 
     def send_email(self, dto: SendEmailDto) -> dict[str, Any]:
-        """Отправляет новое письмо от имени выбранного ящика."""
         mailbox = self._require_mailbox(dto.mailbox_id)
         to_list = self._parser.parse(dto.to)
         if not to_list:
@@ -137,6 +135,22 @@ class MailService:
             params["reply_to"] = reply_to
 
         result = self._client.send(params)
+        email_id = result.get("id") if isinstance(result, dict) else None
+        if email_id:
+            try:
+                self._sync.store_sent_by_id(email_id)
+            except HTTPException:
+                self._emails.upsert_from_api(
+                    {
+                        "id": email_id,
+                        "from": mailbox.from_address(),
+                        "to": to_list,
+                        "subject": dto.subject,
+                        "html": dto.html,
+                        "text": dto.text,
+                    },
+                    "sent",
+                )
         return {"ok": True, "data": result}
 
     def reply_in_thread(
@@ -145,7 +159,6 @@ class MailService:
         thread_id: str,
         dto: ReplyEmailDto,
     ) -> dict[str, Any]:
-        """Отвечает в цепочке с корректными In-Reply-To и References."""
         mailbox = self._require_mailbox(mailbox_id)
         self._require_body(dto.html, dto.text, "Текст ответа не может быть пустым.")
 
@@ -153,9 +166,8 @@ class MailService:
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
 
-        # message_id нужен для In-Reply-To — подгружаем только если его нет
         if not self._threads.collect_message_ids(thread):
-            self._enrich_thread_messages(thread)
+            self._enrich_thread_from_db_or_api(thread)
 
         recipient = self._resolve_reply_recipient(thread, mailbox)
         subject = self._resolve_reply_subject(thread)
@@ -181,11 +193,39 @@ class MailService:
             params["headers"] = headers
 
         result = self._client.send(params)
+        email_id = result.get("id") if isinstance(result, dict) else None
+        if email_id:
+            try:
+                self._sync.store_sent_by_id(email_id)
+            except HTTPException:
+                self._emails.upsert_from_api(
+                    {
+                        "id": email_id,
+                        "from": mailbox.from_address(),
+                        "to": [recipient],
+                        "subject": subject,
+                        "html": dto.html,
+                        "text": dto.text,
+                    },
+                    "sent",
+                )
         return {"ok": True, "data": result}
+
+    def handle_inbound_webhook(self, payload: dict) -> dict[str, Any]:
+        """Обрабатывает webhook ``email.received`` от Resend."""
+        if payload.get("type") != "email.received":
+            return {"ok": True, "ignored": True}
+
+        data = payload.get("data") or {}
+        email_id = data.get("email_id")
+        if not email_id:
+            raise HTTPException(status_code=400, detail="email_id отсутствует в webhook")
+
+        self._sync.store_received_by_id(email_id)
+        return {"ok": True, "stored": email_id}
 
     @staticmethod
     def _resolve_reply_recipient(thread: Thread, mailbox: Mailbox) -> str:
-        """Определяет адрес получателя ответа."""
         box_email = mailbox.email.lower()
         for msg in sorted(thread.messages, key=lambda m: m.created_at, reverse=True):
             if msg.direction == "inbound":
@@ -199,7 +239,6 @@ class MailService:
 
     @staticmethod
     def _resolve_reply_subject(thread: Thread) -> str:
-        """Формирует тему ответа."""
         raw = thread.messages[0].subject if thread.messages else thread.subject
         if raw.lower().startswith("re:"):
             return raw

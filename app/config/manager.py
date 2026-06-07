@@ -1,118 +1,95 @@
-"""Менеджер локального хранения настроек."""
+"""Менеджер конфигурации на базе SQLite."""
 
 import json
-import uuid
 from pathlib import Path
 
-from app.models.mailbox import MAILBOX_COLORS, Mailbox
+from app.db.database import DatabaseManager
 from app.models.settings import AppSettings
+from app.repositories.mailbox_repository import MailboxRepository
+from app.repositories.settings_repository import SettingsRepository
 
 
 class ConfigManager:
-    """Читает и сохраняет настройки приложения в JSON-файл."""
+    """Единая точка доступа к настройкам и ящикам (SQLite)."""
 
-    def __init__(self, config_path: Path | None = None) -> None:
-        """
-        :param config_path: Путь к config.json. По умолчанию — рядом с корнем проекта.
-        """
-        if config_path is None:
-            config_path = Path(__file__).resolve().parent.parent.parent / "config.json"
-        self._path = config_path
+    def __init__(
+        self,
+        db: DatabaseManager | None = None,
+        legacy_json_path: Path | None = None,
+    ) -> None:
+        self._db = db or DatabaseManager()
+        self._settings = SettingsRepository(self._db)
+        self._mailboxes = MailboxRepository(self._db)
+        if legacy_json_path is None:
+            legacy_json_path = Path(__file__).resolve().parent.parent.parent / "config.json"
+        self._legacy_json_path = legacy_json_path
+        self._migrate_legacy_json()
 
     @property
-    def path(self) -> Path:
-        """Путь к файлу конфигурации."""
-        return self._path
+    def db_path(self) -> Path:
+        """Путь к файлу SQLite."""
+        return self._db.path
+
+    def _migrate_legacy_json(self) -> None:
+        """Переносит config.json в SQLite (один раз)."""
+        if self._settings.is_json_migrated():
+            return
+
+        if self._legacy_json_path.exists():
+            try:
+                raw = json.loads(self._legacy_json_path.read_text(encoding="utf-8"))
+                settings = AppSettings.from_dict(raw)
+                if settings.api_key:
+                    self._settings.set_api_key(settings.api_key)
+                for box in settings.mailboxes:
+                    self._mailboxes.upsert_from_dict(box.to_dict())
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        self._settings.mark_json_migrated()
 
     def load(self) -> AppSettings:
-        """Загружает настройки с диска или возвращает значения по умолчанию."""
-        if not self._path.exists():
-            return AppSettings()
-
-        try:
-            raw = json.loads(self._path.read_text(encoding="utf-8"))
-            return AppSettings.from_dict(raw)
-        except (json.JSONDecodeError, OSError):
-            return AppSettings()
-
-    def save(self, settings: AppSettings) -> AppSettings:
-        """Сохраняет настройки на диск."""
-        self._path.write_text(
-            json.dumps(settings.to_dict(), indent=2, ensure_ascii=False),
-            encoding="utf-8",
+        """Загружает настройки из БД."""
+        return AppSettings(
+            api_key=self._settings.get_api_key(),
+            mailboxes=self._mailboxes.list_all(),
         )
-        return settings
 
     def update_api_key(self, api_key: str) -> AppSettings:
-        """
-        Обновляет API-ключ.
-
-        Пустая строка означает «не менять».
-        """
-        current = self.load()
+        """Обновляет API-ключ (пустая строка = не менять)."""
         if api_key.strip():
-            current.api_key = api_key.strip()
-        return self.save(current)
+            self._settings.set_api_key(api_key.strip())
+        return self.load()
 
-    def require_mailbox(self, mailbox_id: str) -> Mailbox:
-        """Возвращает ящик или выбрасывает ValueError."""
-        box = self.load().get_mailbox(mailbox_id)
+    def require_mailbox(self, mailbox_id: str):
+        """Возвращает ящик или ValueError."""
+        box = self._mailboxes.get_by_id(mailbox_id)
         if not box:
             raise ValueError(f"Ящик {mailbox_id} не найден")
         return box
 
-    def list_mailboxes(self) -> list[Mailbox]:
-        """Список всех ящиков."""
-        return self.load().mailboxes
+    def list_mailboxes(self):
+        return self._mailboxes.list_all()
 
-    def add_mailbox(self, name: str, email: str) -> Mailbox:
-        """Добавляет новый почтовый ящик."""
-        settings = self.load()
-        email = email.strip().lower()
-        for box in settings.mailboxes:
-            if box.email == email:
-                raise ValueError(f"Ящик {email} уже существует")
+    def add_mailbox(self, name: str, email: str):
+        return self._mailboxes.create(name, email)
 
-        color = MAILBOX_COLORS[len(settings.mailboxes) % len(MAILBOX_COLORS)]
-        new_box = Mailbox(id=str(uuid.uuid4()), name=name.strip(), email=email, color=color)
-        settings.mailboxes.append(new_box)
-        self.save(settings)
-        return new_box
-
-    def update_mailbox(self, mailbox_id: str, name: str, email: str) -> Mailbox:
-        """Обновляет существующий ящик."""
-        settings = self.load()
-        email = email.strip().lower()
-        target: Mailbox | None = None
-
-        for box in settings.mailboxes:
-            if box.id != mailbox_id and box.email == email:
-                raise ValueError(f"Ящик {email} уже существует")
-
-        for box in settings.mailboxes:
-            if box.id == mailbox_id:
-                box.name = name.strip()
-                box.email = email
-                target = box
-                break
-
-        if not target:
-            raise ValueError(f"Ящик {mailbox_id} не найден")
-
-        self.save(settings)
-        return target
+    def update_mailbox(self, mailbox_id: str, name: str, email: str):
+        return self._mailboxes.update(mailbox_id, name, email)
 
     def delete_mailbox(self, mailbox_id: str) -> None:
-        """Удаляет ящик по ID."""
-        settings = self.load()
-        settings.mailboxes = [b for b in settings.mailboxes if b.id != mailbox_id]
-        self.save(settings)
+        self._mailboxes.delete(mailbox_id)
 
     def public_view(self) -> dict:
-        """Возвращает настройки без полного API-ключа (для фронтенда)."""
-        settings = self.load()
+        """Публичные настройки для фронтенда."""
         return {
-            "has_api_key": settings.has_api_key(),
-            "api_key_preview": settings.api_key_preview(),
-            "mailboxes": [box.to_dict() for box in settings.mailboxes],
+            "has_api_key": self._settings.has_api_key(),
+            "api_key_preview": self._settings.api_key_preview(),
+            "mailboxes": [b.to_dict() for b in self._mailboxes.list_all()],
+            "db_path": str(self._db.path.name),
+            "emails_stored": self._settings.get("emails_count", "0"),
         }
+
+    @property
+    def settings_repo(self) -> SettingsRepository:
+        return self._settings
