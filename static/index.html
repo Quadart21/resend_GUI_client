@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resend Mail</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">✉</div>
+        <div>
+          <h1>Resend Mail</h1>
+          <p id="from-preview">Настройте домен</p>
+        </div>
+      </div>
+
+      <button class="compose-btn" id="btn-compose">+ Написать</button>
+
+      <nav class="nav">
+        <button class="nav-item active" data-view="inbox">
+          <span class="nav-icon">📥</span> Входящие
+        </button>
+        <button class="nav-item" data-view="sent">
+          <span class="nav-icon">📤</span> Отправленные
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-icon">⚙</span> Настройки
+        </button>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <!-- Список писем -->
+      <section class="panel list-panel" id="list-panel">
+        <header class="panel-header">
+          <h2 id="list-title">Входящие</h2>
+          <button class="icon-btn" id="btn-refresh" title="Обновить">↻</button>
+        </header>
+        <div class="search-bar">
+          <input type="search" id="search-input" placeholder="Поиск по теме или адресу...">
+        </div>
+        <div class="email-list" id="email-list">
+          <div class="empty-state">Загрузка...</div>
+        </div>
+        <footer class="list-footer">
+          <button class="text-btn" id="btn-load-more" hidden>Загрузить ещё</button>
+        </footer>
+      </section>
+
+      <!-- Просмотр письма -->
+      <section class="panel detail-panel" id="detail-panel">
+        <div class="empty-state detail-empty" id="detail-empty">
+          <div class="empty-icon">📬</div>
+          <p>Выберите письмо для просмотра</p>
+        </div>
+        <div class="detail-content hidden" id="detail-content">
+          <header class="detail-header">
+            <h2 id="detail-subject"></h2>
+            <div class="detail-meta">
+              <div><strong>От:</strong> <span id="detail-from"></span></div>
+              <div><strong>Кому:</strong> <span id="detail-to"></span></div>
+              <div><strong>Дата:</strong> <span id="detail-date"></span></div>
+              <div id="detail-status-row" class="hidden"><strong>Статус:</strong> <span id="detail-status"></span></div>
+            </div>
+            <div class="detail-actions">
+              <button class="secondary-btn hidden" id="btn-reply">↩ Ответить</button>
+            </div>
+          </header>
+          <div class="detail-body" id="detail-body"></div>
+        </div>
+      </section>
+
+      <!-- Написать письмо -->
+      <section class="panel compose-panel hidden" id="compose-panel">
+        <header class="panel-header">
+          <h2 id="compose-title">Новое письмо</h2>
+          <button class="icon-btn" id="btn-close-compose">✕</button>
+        </header>
+        <form class="compose-form" id="compose-form">
+          <label>
+            Кому
+            <input type="text" id="compose-to" required placeholder="email@example.com">
+          </label>
+          <label>
+            Копия (CC)
+            <input type="text" id="compose-cc" placeholder="необязательно">
+          </label>
+          <label>
+            Скрытая копия (BCC)
+            <input type="text" id="compose-bcc" placeholder="необязательно">
+          </label>
+          <label>
+            Тема
+            <input type="text" id="compose-subject" required placeholder="Тема письма">
+          </label>
+          <label class="format-toggle">
+            Формат
+            <div class="toggle-group">
+              <button type="button" class="toggle-btn active" data-format="html">HTML</button>
+              <button type="button" class="toggle-btn" data-format="text">Текст</button>
+            </div>
+          </label>
+          <label>
+            Сообщение
+            <textarea id="compose-body" rows="14" required placeholder="<p>Привет!</p>"></textarea>
+          </label>
+          <div class="form-actions">
+            <button type="button" class="secondary-btn" id="btn-cancel-compose">Отмена</button>
+            <button type="submit" class="primary-btn" id="btn-send">Отправить</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Настройки -->
+      <section class="panel settings-panel hidden" id="settings-panel">
+        <header class="panel-header">
+          <h2>Настройки</h2>
+        </header>
+        <form class="settings-form" id="settings-form">
+          <div class="settings-info">
+            <p>Для работы нужен <a href="https://resend.com/api-keys" target="_blank">API ключ</a> и <a href="https://resend.com/docs/add-a-domain" target="_blank">верифицированный домен</a>.</p>
+            <p>Для приёма писем настройте <a href="https://resend.com/docs/dashboard/receiving/introduction" target="_blank">Receiving</a> в панели Resend.</p>
+          </div>
+          <label>
+            API ключ Resend
+            <input type="password" id="settings-api-key" placeholder="re_xxxxxxxx" autocomplete="off">
+            <small id="api-key-hint"></small>
+          </label>
+          <label>
+            Email отправителя (ваш домен)
+            <input type="email" id="settings-from-email" placeholder="hello@yourdomain.com" required>
+          </label>
+          <label>
+            Имя отправителя
+            <input type="text" id="settings-from-name" placeholder="Моя компания">
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="primary-btn">Сохранить</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
