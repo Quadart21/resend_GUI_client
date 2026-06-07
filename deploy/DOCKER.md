@@ -38,43 +38,36 @@ docker compose version
 
 ---
 
-## 3. Клонирование проекта
+## 3. Установка одной командой
+
+DNS `webmail.kubex.me` → IP сервера, порт **80** свободен:
 
 ```bash
-mkdir -p /opt/resend-gui
-cd /opt/resend-gui
-git clone https://github.com/Quadart21/resend_GUI_client.git .
+mkdir -p /opt/resend-gui && cd /opt/resend-gui && git clone https://github.com/Quadart21/resend_GUI_client.git . && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
+```
+
+Или без `/opt` (в домашней папке):
+
+```bash
+git clone https://github.com/Quadart21/resend_GUI_client.git && cd resend_GUI_client && chmod +x deploy/docker/init-letsencrypt.sh && CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh && docker compose --profile prod up -d --build
+```
+
+Сертификаты появятся в `deploy/docker/certs/` (`fullchain.pem`, `privkey.pem`).
+
+---
+
+## 4. Обновление
+
+```bash
+cd /opt/resend-gui && git pull && docker compose --profile prod up -d --build
 ```
 
 ---
 
-## 4. SSL-сертификат (Let's Encrypt)
+## 5. Проверка
 
 ```bash
-chmod +x deploy/docker/init-letsencrypt.sh
-CERTBOT_EMAIL=ваш@email.com bash deploy/docker/init-letsencrypt.sh
-```
-
-Сертификаты появятся в `deploy/docker/certs/`:
-- `fullchain.pem`
-- `privkey.pem`
-
-> Перед запуском скрипта порт **80** должен быть свободен.
-
----
-
-## 5. Запуск production
-
-```bash
-docker compose --profile prod up -d --build
-```
-
-Проверка:
-
-```bash
-docker compose ps
-docker compose logs -f webmail
-curl -I https://webmail.kubex.me
+docker compose ps && docker compose logs --tail=20 webmail && curl -I https://webmail.kubex.me
 ```
 
 Откройте: **https://webmail.kubex.me**
@@ -112,8 +105,7 @@ docker compose --profile prod restart
 docker compose --profile prod down
 
 # Обновление после git pull
-git pull
-docker compose --profile prod up -d --build
+cd /opt/resend-gui && git pull && docker compose --profile prod up -d --build
 
 # Ручная синхронизация писем с Resend
 curl -X POST https://webmail.kubex.me/api/sync
