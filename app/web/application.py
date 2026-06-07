@@ -12,6 +12,7 @@ from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.mail_service import MailService
+from app.services.notification_service import NotificationService
 from app.services.resend_client import ResendApiClient
 from app.services.sync_service import SyncService
 from app.version import __version__
@@ -19,6 +20,7 @@ from app.web.controllers.auth_controller import AuthController
 from app.web.controllers.config_controller import ConfigController
 from app.web.controllers.mail_controller import MailController
 from app.web.controllers.mailbox_controller import MailboxController
+from app.web.controllers.notification_controller import NotificationController
 from app.web.controllers.page_controller import PageController
 from app.web.controllers.user_controller import UserController
 from app.web.controllers.webhook_controller import WebhookController
@@ -66,6 +68,10 @@ class WebApplication:
             self._email_repository,
             self._sync_service,
         )
+        self._notification_service = NotificationService(
+            self._config_manager,
+            self._email_repository,
+        )
 
         # Контроллеры
         self._page_controller = PageController(self._static_dir)
@@ -75,6 +81,10 @@ class WebApplication:
         self._mailbox_controller = MailboxController(self._config_manager, self._auth_service)
         self._mail_controller = MailController(self._mail_service, self._auth_service)
         self._webhook_controller = WebhookController(self._mail_service, self._auth_service)
+        self._notification_controller = NotificationController(
+            self._notification_service,
+            self._auth_service,
+        )
 
     def create(self) -> FastAPI:
         """Создаёт и возвращает настроенное FastAPI-приложение."""
@@ -92,6 +102,7 @@ class WebApplication:
         self._mailbox_controller.register(api_router)
         self._mail_controller.register(api_router)
         self._webhook_controller.register(api_router)
+        self._notification_controller.register(api_router)
         app.include_router(api_router)
 
         if self._assets_dir.exists():

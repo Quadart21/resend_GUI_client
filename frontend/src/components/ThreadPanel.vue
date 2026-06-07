@@ -8,9 +8,12 @@ const props = defineProps({
   activeThreadId: { type: String, default: null },
   loading: { type: Boolean, default: false },
   isAdmin: { type: Boolean, default: false },
+  notificationsOn: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['select', 'refresh', 'menu', 'compose', 'settings', 'logout'])
+const emit = defineEmits([
+  'select', 'refresh', 'menu', 'compose', 'settings', 'logout', 'toggle-notifications',
+])
 
 const search = ref('')
 const filtered = ref([])
@@ -49,6 +52,18 @@ watch(
         <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M23 4v6h-6M1 20v-6h6" />
           <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="btn-icon shrink-0"
+        :class="notificationsOn ? 'border-accent text-accent-hover' : ''"
+        title="Уведомления"
+        @click="emit('toggle-notifications')"
+      >
+        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 01-3.46 0" />
         </svg>
       </button>
       <button v-if="isAdmin" type="button" class="btn-icon shrink-0" title="Настройки" @click="emit('settings')">

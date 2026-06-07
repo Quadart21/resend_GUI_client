@@ -7,9 +7,12 @@ defineProps({
   threadCounts: { type: Object, default: () => ({}) },
   isAdmin: { type: Boolean, default: false },
   username: { type: String, default: '' },
+  notificationsOn: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['select', 'add', 'compose', 'settings', 'users', 'logout', 'close'])
+const emit = defineEmits([
+  'select', 'add', 'compose', 'settings', 'users', 'logout', 'close', 'toggle-notifications',
+])
 </script>
 
 <template>
@@ -93,6 +96,20 @@ const emit = defineEmits(['select', 'add', 'compose', 'settings', 'users', 'logo
 
     <nav class="mt-auto space-y-1">
       <p v-if="username" class="truncate px-2.5 text-[11px] text-zinc-500">{{ username }}</p>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-3 text-[13px] transition md:py-2"
+        :class="notificationsOn
+          ? 'bg-accent-soft text-accent-hover'
+          : 'text-zinc-400 hover:bg-surface-hover hover:text-zinc-100'"
+        @click="emit('toggle-notifications')"
+      >
+        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 01-3.46 0" />
+        </svg>
+        {{ notificationsOn ? 'Уведомления вкл.' : 'Уведомления' }}
+      </button>
       <button
         v-if="isAdmin"
         type="button"

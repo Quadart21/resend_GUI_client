@@ -145,3 +145,49 @@ class EmailRepository:
         with self._db.connection() as conn:
             row = conn.execute("SELECT COUNT(*) AS c FROM emails").fetchone()
             return int(row["c"]) if row else 0
+
+    def list_inbound_since(
+        self,
+        since: str,
+        mailbox_emails: list[str],
+    ) -> list[dict[str, Any]]:
+        """Входящие письма на указанные ящики, полученные после ``since`` (ISO)."""
+        from app.utils.email_helper import EmailHelper
+
+        allowed = {e.lower() for e in mailbox_emails}
+        if not allowed:
+            return []
+
+        with self._db.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM emails
+                WHERE source = 'received' AND created_at > ?
+                ORDER BY created_at ASC
+                """,
+                (since,),
+            ).fetchall()
+
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            matched = None
+            for addr in self._parse_list(row["to_addrs"]):
+                email = EmailHelper.extract_email(str(addr))
+                if email in allowed:
+                    matched = email
+                    break
+            if not matched:
+                continue
+
+            text = (row["text_content"] or row["subject"] or "").strip()
+            preview = text[:140] + ("…" if len(text) > 140 else "")
+
+            result.append({
+                "email_id": row["id"],
+                "from": row["from_addr"],
+                "subject": row["subject"] or "(без темы)",
+                "preview": preview,
+                "created_at": row["created_at"],
+                "mailbox_email": matched,
+            })
+        return result

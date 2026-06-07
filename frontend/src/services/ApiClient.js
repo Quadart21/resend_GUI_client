@@ -86,6 +86,11 @@ export class ApiClient {
       body: JSON.stringify(body),
     })
   }
+
+  checkInboundNotifications(since) {
+    const q = encodeURIComponent(since)
+    return this.request(`/notifications/inbound?since=${q}`)
+  }
 }
 
 /** Единственный экземпляр клиента для всего приложения */

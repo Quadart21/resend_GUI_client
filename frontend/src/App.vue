@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '@/services/ApiClient'
 import { FormatHelper } from '@/services/FormatHelper'
+import { NotificationWatcher } from '@/services/NotificationWatcher'
 import LoginView from '@/components/LoginView.vue'
 import MailboxSidebar from '@/components/MailboxSidebar.vue'
 import ThreadPanel from '@/components/ThreadPanel.vue'
@@ -25,6 +26,9 @@ const composeOpen = ref(false)
 const settingsOpen = ref(false)
 const usersOpen = ref(false)
 const sidebarOpen = ref(false)
+const notificationsOn = ref(localStorage.getItem('resend_notifications_enabled') === '1')
+
+let notificationWatcher = null
 
 const isAdmin = computed(() => Boolean(user.value?.is_admin))
 
@@ -160,9 +164,51 @@ async function onSettingsChanged() {
 async function onLogin(loggedInUser) {
   user.value = loggedInUser
   await bootstrapApp()
+  initNotifications()
+}
+
+function initNotifications() {
+  if (!NotificationWatcher.isSupported()) return
+
+  notificationWatcher = new NotificationWatcher(api, {
+    onNewMail: () => loadThreads(),
+    onError: () => {},
+  })
+
+  notificationsOn.value = notificationWatcher.isEnabled()
+  if (notificationsOn.value) {
+    notificationWatcher.start()
+  }
+}
+
+async function toggleNotifications() {
+  if (!notificationWatcher) {
+    initNotifications()
+  }
+  if (!notificationWatcher) {
+    notify('Браузер не поддерживает уведомления', 'error')
+    return
+  }
+
+  if (notificationsOn.value) {
+    notificationWatcher.disable()
+    notificationsOn.value = false
+    notify('Уведомления отключены')
+    return
+  }
+
+  try {
+    await notificationWatcher.enable()
+    notificationsOn.value = true
+    notify('Уведомления включены')
+  } catch (err) {
+    notify(err.message, 'error')
+  }
 }
 
 async function logout() {
+  notificationWatcher?.stop()
+  notificationsOn.value = false
   try {
     await api.logout()
   } catch {
@@ -189,11 +235,16 @@ onMounted(async () => {
     const data = await api.me()
     user.value = data.user
     await bootstrapApp()
+    initNotifications()
   } catch {
     user.value = null
   } finally {
     authLoading.value = false
   }
+})
+
+onUnmounted(() => {
+  notificationWatcher?.stop()
 })
 </script>
 
@@ -221,12 +272,14 @@ onMounted(async () => {
         :thread-counts="threadCounts"
         :is-admin="isAdmin"
         :username="user.username"
+        :notifications-on="notificationsOn"
         @select="selectMailbox"
         @compose="openCompose"
         @add="settingsOpen = true"
         @settings="openAdminPanel"
         @users="openUsersPanel"
         @logout="logout"
+        @toggle-notifications="toggleNotifications"
         @close="sidebarOpen = false"
       />
 
@@ -238,12 +291,14 @@ onMounted(async () => {
         :active-thread-id="activeThreadId"
         :loading="loadingThreads"
         :is-admin="isAdmin"
+        :notifications-on="notificationsOn"
         @select="openThread"
         @refresh="loadThreads"
         @menu="sidebarOpen = true"
         @compose="openCompose"
         @settings="openAdminPanel"
         @logout="logout"
+        @toggle-notifications="toggleNotifications"
       />
 
       <ConversationPanel
