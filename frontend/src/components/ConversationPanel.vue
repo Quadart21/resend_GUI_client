@@ -1,6 +1,8 @@
 <script setup>
 import { ref, watch, nextTick, computed } from 'vue'
 import { FormatHelper } from '@/services/FormatHelper'
+import { AttachmentHelper } from '@/services/AttachmentHelper'
+import { api } from '@/services/ApiClient'
 
 const props = defineProps({
   thread: { type: Object, default: null },
@@ -8,11 +10,16 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['reply', 'back'])
+const emit = defineEmits(['reply', 'back', 'star-thread', 'star-message', 'delete-message', 'notify'])
 
 const scrollEl = ref(null)
 const showQuickReply = ref(false)
 const replyBody = ref('')
+const replyAttachments = ref([])
+const pickingFiles = ref(false)
+const replyFileInput = ref(null)
+
+const limits = AttachmentHelper.limits
 
 const sortedMessages = computed(() => {
   if (!props.thread?.messages?.length) return []
@@ -26,6 +33,7 @@ watch(
   async () => {
     showQuickReply.value = false
     replyBody.value = ''
+    replyAttachments.value = []
     await nextTick()
     if (scrollEl.value) scrollEl.value.scrollTop = scrollEl.value.scrollHeight
   },
@@ -33,10 +41,38 @@ watch(
 
 function sendQuickReply() {
   const text = replyBody.value.trim()
-  if (!text) return
-  emit('reply', text)
+  const hasFiles = replyAttachments.value.length > 0
+  if (!text && !hasFiles) return
+  emit('reply', {
+    text,
+    attachments: AttachmentHelper.toPayload(replyAttachments.value),
+  })
   showQuickReply.value = false
   replyBody.value = ''
+  replyAttachments.value = []
+}
+
+async function onReplyFilesSelected(event) {
+  const input = event.target
+  pickingFiles.value = true
+  try {
+    const items = await AttachmentHelper.readFiles(input.files)
+    replyAttachments.value = [...replyAttachments.value, ...items].slice(0, limits.maxFiles)
+  } catch (err) {
+    emit('notify', err.message, 'error')
+  } finally {
+    pickingFiles.value = false
+    if (input) input.value = ''
+  }
+}
+
+function removeReplyAttachment(index) {
+  replyAttachments.value = replyAttachments.value.filter((_, i) => i !== index)
+}
+
+function attachmentHref(emailId, attachmentId) {
+  if (!props.mailbox?.id) return '#'
+  return api.attachmentUrl(props.mailbox.id, emailId, attachmentId)
 }
 
 function dateLabel(iso, index) {
@@ -48,6 +84,11 @@ function dateLabel(iso, index) {
     if (d.toDateString() === pd.toDateString()) return null
   }
   return d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+function toggleThreadStar() {
+  if (!props.thread) return
+  emit('star-thread', props.thread.id, !props.thread.is_starred)
 }
 </script>
 
@@ -84,12 +125,32 @@ function dateLabel(iso, index) {
           </button>
 
           <div class="min-w-0 flex-1">
-            <h2 class="line-clamp-2 text-base font-bold tracking-tight text-zinc-50 md:truncate md:text-lg">
-              {{ thread?.subject || '(без темы)' }}
-            </h2>
+            <div class="flex items-start gap-2">
+              <h2 class="line-clamp-2 flex-1 text-base font-bold tracking-tight text-zinc-50 md:truncate md:text-lg">
+                {{ thread?.subject || '(без темы)' }}
+              </h2>
+              <button
+                type="button"
+                class="btn-icon shrink-0"
+                :class="thread?.is_starred ? 'text-amber-400' : 'text-zinc-500'"
+                :title="thread?.is_starred ? 'Убрать из важных' : 'Пометить как важное'"
+                :disabled="loading || !thread"
+                @click="toggleThreadStar"
+              >
+                <svg class="h-5 w-5" viewBox="0 0 24 24" :fill="thread?.is_starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              </button>
+            </div>
             <p v-if="thread" class="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
               <span>{{ thread.message_count || sortedMessages.length }} сообщ.</span>
               <span v-if="thread.correspondent">· {{ thread.correspondent }}</span>
+              <span
+                v-if="thread.is_starred"
+                class="rounded bg-amber-500/15 px-1.5 py-0.5 font-semibold text-amber-400"
+              >
+                важное
+              </span>
             </p>
           </div>
 
@@ -135,7 +196,7 @@ function dateLabel(iso, index) {
             </div>
 
             <div
-              class="mb-2 flex animate-fade-in md:mb-3"
+              class="group mb-2 flex animate-fade-in md:mb-3"
               :class="msg.direction === 'outbound' ? 'justify-end' : 'justify-start'"
             >
               <div
@@ -163,6 +224,18 @@ function dateLabel(iso, index) {
                     <span class="text-xs font-semibold text-zinc-200">
                       {{ FormatHelper.displaySender(msg, mailbox) }}
                     </span>
+                    <span
+                      v-if="msg.is_unread"
+                      class="rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-accent-hover"
+                    >
+                      новое
+                    </span>
+                    <span
+                      v-if="msg.is_starred"
+                      class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-400"
+                    >
+                      ★
+                    </span>
                     <span class="text-[10px] text-zinc-500 sm:text-[11px]">
                       {{ FormatHelper.formatFullDate(msg.created_at) }}
                     </span>
@@ -170,9 +243,13 @@ function dateLabel(iso, index) {
 
                   <div
                     class="overflow-hidden rounded-2xl border px-3 py-2.5 shadow-sm sm:px-4 sm:py-3"
-                    :class="msg.direction === 'outbound'
-                      ? 'rounded-tr-md border-indigo-800/60 bg-indigo-950/80'
-                      : 'rounded-tl-md border-border bg-surface-active'"
+                    :class="msg.is_unread
+                      ? 'rounded-tl-md border-accent/50 bg-accent/10 ring-1 ring-accent/20'
+                      : msg.is_starred
+                        ? 'rounded-tl-md border-amber-500/30 bg-amber-500/5'
+                        : msg.direction === 'outbound'
+                          ? 'rounded-tr-md border-indigo-800/60 bg-indigo-950/80'
+                          : 'rounded-tl-md border-border bg-surface-active'"
                   >
                     <div
                       v-if="msg.html"
@@ -184,6 +261,50 @@ function dateLabel(iso, index) {
                       class="whitespace-pre-wrap font-sans text-sm leading-relaxed text-zinc-200"
                     >{{ msg.text }}</pre>
                     <p v-else class="text-sm italic text-zinc-500">Содержимое недоступно</p>
+                  </div>
+
+                  <div
+                    v-if="msg.attachments?.length"
+                    class="mt-2 flex flex-wrap gap-2 px-0.5 sm:px-1"
+                    :class="msg.direction === 'outbound' ? 'justify-end' : 'justify-start'"
+                  >
+                    <a
+                      v-for="att in msg.attachments"
+                      :key="att.id"
+                      :href="attachmentHref(msg.id, att.id)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-2.5 py-1.5 text-xs text-zinc-300 transition hover:border-accent hover:text-accent-hover"
+                    >
+                      <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                      </svg>
+                      <span class="max-w-[12rem] truncate">{{ att.filename }}</span>
+                      <span v-if="att.size" class="text-[10px] text-zinc-500">{{ AttachmentHelper.formatSize(att.size) }}</span>
+                    </a>
+                  </div>
+
+                  <div
+                    class="mt-1 flex items-center gap-1 px-0.5 sm:px-1"
+                    :class="msg.direction === 'outbound' ? 'justify-end' : 'justify-start'"
+                  >
+                    <button
+                      type="button"
+                      class="rounded-lg px-2 py-1 text-[10px] text-zinc-500 opacity-100 transition hover:bg-surface-hover hover:text-amber-400 sm:opacity-0 sm:group-hover:opacity-100"
+                      :class="msg.is_starred ? 'text-amber-400 opacity-100' : ''"
+                      :title="msg.is_starred ? 'Убрать из важных' : 'Пометить как важное'"
+                      @click="emit('star-message', msg.id, !msg.is_starred)"
+                    >
+                      {{ msg.is_starred ? '★ Важное' : '☆ Важное' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded-lg px-2 py-1 text-[10px] text-zinc-500 opacity-100 transition hover:bg-surface-hover hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100"
+                      title="Удалить сообщение"
+                      @click="emit('delete-message', msg.id)"
+                    >
+                      Удалить
+                    </button>
                   </div>
 
                   <p
@@ -213,9 +334,42 @@ function dateLabel(iso, index) {
           placeholder="Напишите ответ..."
           enterkeyhint="send"
         />
+
+        <input
+          ref="replyFileInput"
+          type="file"
+          multiple
+          class="hidden"
+          @change="onReplyFilesSelected"
+        />
+
+        <div class="mb-2.5 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="btn-secondary text-xs"
+            :disabled="pickingFiles || replyAttachments.length >= limits.maxFiles"
+            @click="replyFileInput?.click()"
+          >
+            {{ pickingFiles ? 'Загрузка...' : 'Прикрепить' }}
+          </button>
+          <span
+            v-for="(file, index) in replyAttachments"
+            :key="`${file.filename}-${index}`"
+            class="inline-flex items-center gap-1 rounded-lg bg-surface-active px-2 py-1 text-xs text-zinc-300"
+          >
+            <span class="max-w-[10rem] truncate">{{ file.filename }}</span>
+            <button type="button" class="text-red-400" @click="removeReplyAttachment(index)">✕</button>
+          </span>
+        </div>
+
         <div class="flex justify-end gap-2">
           <button type="button" class="btn-ghost px-4 py-2.5" @click="showQuickReply = false">Отмена</button>
-          <button type="button" class="btn-primary px-4 py-2.5" :disabled="!replyBody.trim()" @click="sendQuickReply">
+          <button
+            type="button"
+            class="btn-primary px-4 py-2.5"
+            :disabled="!replyBody.trim() && !replyAttachments.length"
+            @click="sendQuickReply"
+          >
             Отправить
           </button>
         </div>

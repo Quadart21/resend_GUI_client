@@ -1,6 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { FormatHelper } from '@/services/FormatHelper'
+import { AttachmentHelper } from '@/services/AttachmentHelper'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -8,12 +9,17 @@ const props = defineProps({
   activeMailboxId: { type: String, default: null },
 })
 
-const emit = defineEmits(['close', 'send'])
+const emit = defineEmits(['close', 'send', 'notify'])
 
 const mailboxId = ref('')
 const to = ref('')
 const subject = ref('')
 const body = ref('')
+const attachments = ref([])
+const picking = ref(false)
+const fileInput = ref(null)
+
+const limits = AttachmentHelper.limits
 
 watch(
   () => props.open,
@@ -23,17 +29,46 @@ watch(
       to.value = ''
       subject.value = ''
       body.value = ''
+      attachments.value = []
     }
   },
 )
 
+async function onFilesSelected(event) {
+  const input = event.target
+  picking.value = true
+  try {
+    const items = await AttachmentHelper.readFiles(input.files)
+    attachments.value = [...attachments.value, ...items].slice(0, limits.maxFiles)
+  } catch (err) {
+    emit('notify', err.message, 'error')
+  } finally {
+    picking.value = false
+    if (input) input.value = ''
+  }
+}
+
+function removeAttachment(index) {
+  attachments.value = attachments.value.filter((_, i) => i !== index)
+}
+
 function submit() {
+  const hasBody = body.value.trim().length > 0
+  const hasFiles = attachments.value.length > 0
+  if (!hasBody && !hasFiles) {
+    emit('notify', 'Укажите текст или прикрепите файл', 'error')
+    return
+  }
+
   emit('send', {
     mailbox_id: mailboxId.value,
     to: to.value,
     subject: subject.value,
-    html: `<p>${FormatHelper.escapeHtml(body.value).replace(/\n/g, '<br>')}</p>`,
+    html: hasBody
+      ? `<p>${FormatHelper.escapeHtml(body.value).replace(/\n/g, '<br>')}</p>`
+      : '<p></p>',
     text: body.value,
+    attachments: AttachmentHelper.toPayload(attachments.value),
   })
 }
 </script>
@@ -73,8 +108,48 @@ function submit() {
 
           <label class="block">
             <span class="mb-1.5 block text-xs font-semibold text-zinc-400">Сообщение</span>
-            <textarea v-model="body" rows="8" class="input-field resize-y" required placeholder="Текст письма..." />
+            <textarea v-model="body" rows="8" class="input-field resize-y" placeholder="Текст письма..." />
           </label>
+
+          <div class="block">
+            <div class="mb-1.5 flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-zinc-400">Вложения</span>
+              <span class="text-[10px] text-zinc-500">до {{ limits.maxFiles }} файлов, {{ limits.maxTotalMb }} МБ</span>
+            </div>
+
+            <input
+              ref="fileInput"
+              type="file"
+              multiple
+              class="hidden"
+              @change="onFilesSelected"
+            />
+
+            <button
+              type="button"
+              class="btn-secondary w-full sm:w-auto"
+              :disabled="picking || attachments.length >= limits.maxFiles"
+              @click="fileInput?.click()"
+            >
+              {{ picking ? 'Загрузка...' : 'Прикрепить файлы' }}
+            </button>
+
+            <ul v-if="attachments.length" class="mt-2 space-y-1.5">
+              <li
+                v-for="(file, index) in attachments"
+                :key="`${file.filename}-${index}`"
+                class="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm"
+              >
+                <div class="min-w-0">
+                  <div class="truncate font-medium text-zinc-200">{{ file.filename }}</div>
+                  <div class="text-[11px] text-zinc-500">{{ AttachmentHelper.formatSize(file.size) }}</div>
+                </div>
+                <button type="button" class="btn-ghost shrink-0 px-2 py-1 text-xs text-red-400" @click="removeAttachment(index)">
+                  Убрать
+                </button>
+              </li>
+            </ul>
+          </div>
 
           <div class="flex justify-end gap-2.5 pt-2">
             <button type="button" class="btn-secondary" @click="emit('close')">Отмена</button>

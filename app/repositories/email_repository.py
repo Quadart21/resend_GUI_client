@@ -50,6 +50,7 @@ class EmailRepository:
             "message_id": row["message_id"],
             "last_event": row["last_event"],
             "created_at": row["created_at"],
+            "source": row["source"],
         }
 
     def upsert_from_api(self, data: dict[str, Any], source: str) -> None:

@@ -2,12 +2,15 @@
 import { ref, watch } from 'vue'
 import { api } from '@/services/ApiClient'
 import { FormatHelper } from '@/services/FormatHelper'
+import UsersPanel from '@/components/UsersPanel.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
+  initialTab: { type: String, default: 'integration' },
+  currentUserId: { type: String, default: null },
 })
 
-const emit = defineEmits(['close', 'changed', 'open-users', 'notify'])
+const emit = defineEmits(['close', 'changed', 'notify'])
 
 const tabs = [
   { id: 'integration', label: 'Resend' },
@@ -38,7 +41,7 @@ watch(
   () => props.open,
   (isOpen) => {
     if (isOpen) {
-      activeTab.value = 'integration'
+      activeTab.value = props.initialTab || 'integration'
       load()
     }
   },
@@ -366,13 +369,13 @@ defineExpose({ load })
           </div>
 
           <!-- Пользователи -->
-          <div v-show="activeTab === 'users'" class="space-y-4">
-            <p class="text-xs leading-relaxed text-zinc-500">
-              Учётные записи и доступ к ящикам. Пароль генерируется автоматически при создании.
-            </p>
-            <button type="button" class="btn-primary w-full sm:w-auto" @click="emit('open-users')">
-              Управление пользователями
-            </button>
+          <div v-show="activeTab === 'users'">
+            <UsersPanel
+              :active="open && activeTab === 'users'"
+              :current-user-id="currentUserId"
+              @changed="emit('changed')"
+              @notify="toast"
+            />
           </div>
         </div>
       </div>

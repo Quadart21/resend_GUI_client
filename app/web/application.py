@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from app.config.manager import ConfigManager
 from app.db.database import DatabaseManager
 from app.repositories.email_repository import EmailRepository
+from app.repositories.email_flags_repository import EmailFlagsRepository
+from app.repositories.read_state_repository import ReadStateRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
@@ -48,6 +50,8 @@ class WebApplication:
             legacy_json_path=self._base_dir / "config.json",
         )
         self._email_repository = EmailRepository(self._database)
+        self._read_state_repository = ReadStateRepository(self._database)
+        self._email_flags_repository = EmailFlagsRepository(self._database)
         self._user_repository = UserRepository(self._database)
         self._session_repository = SessionRepository(self._database)
 
@@ -68,6 +72,8 @@ class WebApplication:
             self._resend_client,
             self._email_repository,
             self._sync_service,
+            self._read_state_repository,
+            self._email_flags_repository,
         )
         self._notification_service = NotificationService(
             self._config_manager,

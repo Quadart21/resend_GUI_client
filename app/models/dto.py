@@ -27,6 +27,14 @@ class MailboxUpdateDto(BaseModel):
     email: str = Field(description="Email на вашем домене")
 
 
+class AttachmentDto(BaseModel):
+    """Вложение для отправки (Base64 без data URI)."""
+
+    filename: str = Field(min_length=1, description="Имя файла")
+    content: str = Field(min_length=1, description="Содержимое в Base64")
+    content_type: str = Field(default="", description="MIME-тип (необязательно)")
+
+
 class SendEmailDto(BaseModel):
     """Тело запроса на отправку письма."""
 
@@ -38,6 +46,7 @@ class SendEmailDto(BaseModel):
     cc: str = Field(default="", description="Копия")
     bcc: str = Field(default="", description="Скрытая копия")
     reply_to: str = Field(default="", description="Адрес для ответа")
+    attachments: list[AttachmentDto] = Field(default_factory=list, description="Вложения")
 
 
 class ReplyEmailDto(BaseModel):
@@ -46,6 +55,13 @@ class ReplyEmailDto(BaseModel):
     mailbox_id: str = Field(description="ID ящика-отправителя")
     html: str = Field(default="", description="HTML-содержимое ответа")
     text: str = Field(default="", description="Текстовое содержимое ответа")
+    attachments: list[AttachmentDto] = Field(default_factory=list, description="Вложения")
+
+
+class StarDto(BaseModel):
+    """Переключение избранного."""
+
+    starred: bool = Field(description="true — в избранном / важное")
 
 
 class LoginDto(BaseModel):

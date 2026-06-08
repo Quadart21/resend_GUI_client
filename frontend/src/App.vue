@@ -9,7 +9,6 @@ import ThreadPanel from '@/components/ThreadPanel.vue'
 import ConversationPanel from '@/components/ConversationPanel.vue'
 import ComposeModal from '@/components/ComposeModal.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
-import UsersModal from '@/components/UsersModal.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 
 const toastRef = ref(null)
@@ -18,13 +17,15 @@ const authLoading = ref(true)
 const mailboxes = ref([])
 const activeMailboxId = ref(null)
 const threads = ref([])
+const unreadCounts = ref({})
+const unreadTotal = ref(0)
 const activeThread = ref(null)
 const activeThreadId = ref(null)
 const loadingThreads = ref(false)
 const loadingThread = ref(false)
 const composeOpen = ref(false)
 const settingsOpen = ref(false)
-const usersOpen = ref(false)
+const settingsInitialTab = ref('integration')
 const sidebarOpen = ref(false)
 const notificationsOn = ref(localStorage.getItem('resend_notifications_enabled') === '1')
 
@@ -39,13 +40,7 @@ const activeMailbox = computed(() =>
   mailboxes.value.find((b) => b.id === activeMailboxId.value) || null,
 )
 
-const threadCounts = computed(() => {
-  const counts = {}
-  if (activeMailboxId.value && threads.value.length) {
-    counts[activeMailboxId.value] = threads.value.length
-  }
-  return counts
-})
+const threadCounts = computed(() => unreadCounts.value)
 
 const showConversationMobile = computed(
   () => Boolean(activeThreadId.value || loadingThread.value),
@@ -57,7 +52,48 @@ function notify(msg, type = 'success') {
 
 async function bootstrapApp() {
   await loadConfig()
-  await loadThreads()
+  await Promise.all([loadThreads(), loadUnreadCounts()])
+}
+
+function clearUnreadLocally(threadId = null) {
+  if (threadId) {
+    threads.value = threads.value.map((t) =>
+      t.id === threadId ? { ...t, is_unread: false, unread_count: 0 } : t,
+    )
+    unreadTotal.value = threads.value.filter((t) => t.is_unread).length
+  } else {
+    threads.value = threads.value.map((t) => ({ ...t, is_unread: false, unread_count: 0 }))
+    unreadTotal.value = 0
+  }
+  if (activeMailboxId.value) {
+    unreadCounts.value = {
+      ...unreadCounts.value,
+      [activeMailboxId.value]: unreadTotal.value,
+    }
+  }
+}
+
+async function markThreadRead(threadId) {
+  if (!activeMailboxId.value || !threadId) return
+  try {
+    await api.markThreadRead(activeMailboxId.value, threadId)
+    clearUnreadLocally(threadId)
+    await loadUnreadCounts()
+  } catch {
+    /* не мешаем просмотру */
+  }
+}
+
+async function markAllRead() {
+  if (!activeMailboxId.value || !unreadTotal.value) return
+  try {
+    await api.markAllThreadsRead(activeMailboxId.value)
+    clearUnreadLocally()
+    await loadUnreadCounts()
+    notify('Все переписки прочитаны')
+  } catch (err) {
+    notify(err.message, 'error')
+  }
 }
 
 async function loadConfig() {
@@ -80,18 +116,42 @@ async function loadConfig() {
   }
 }
 
+async function loadUnreadCounts() {
+  try {
+    const data = await api.unreadCounts()
+    unreadCounts.value = data.counts || {}
+  } catch {
+    /* не блокируем UI */
+  }
+}
+
 async function loadThreads(sync = false, silent = false) {
   if (!activeMailboxId.value) {
     threads.value = []
+    unreadTotal.value = 0
     return
   }
   if (!silent) loadingThreads.value = true
   try {
     const data = await api.listThreads(activeMailboxId.value, sync)
     threads.value = data.threads || []
+    unreadTotal.value = data.unread_total ?? threads.value.filter((t) => t.is_unread).length
+    if (activeMailboxId.value) {
+      unreadCounts.value = {
+        ...unreadCounts.value,
+        [activeMailboxId.value]: unreadTotal.value,
+      }
+    }
+    if (silent && activeThreadId.value) {
+      const current = threads.value.find((t) => t.id === activeThreadId.value)
+      if (current?.is_unread) {
+        markThreadRead(activeThreadId.value)
+      }
+    }
   } catch (err) {
     if (!silent) notify(err.message, 'error')
     threads.value = []
+    unreadTotal.value = 0
   } finally {
     if (!silent) loadingThreads.value = false
   }
@@ -120,6 +180,15 @@ async function openThread(threadId) {
 
   try {
     activeThread.value = await api.getThread(activeMailboxId.value, threadId)
+    await markThreadRead(threadId)
+    if (activeThread.value?.messages) {
+      activeThread.value = {
+        ...activeThread.value,
+        is_unread: false,
+        unread_count: 0,
+        messages: activeThread.value.messages.map((m) => ({ ...m, is_unread: false })),
+      }
+    }
   } catch (err) {
     notify(err.message, 'error')
     activeThread.value = null
@@ -155,17 +224,85 @@ async function handleSend(payload) {
   }
 }
 
-async function handleReply(body) {
+async function handleReply(payload) {
   if (!activeMailboxId.value || !activeThreadId.value) return
+  const text = typeof payload === 'string' ? payload : (payload.text || '')
+  const attachments = typeof payload === 'object' ? (payload.attachments || []) : []
+  if (!text.trim() && !attachments.length) return
+
+  const html = text.trim()
+    ? `<p>${FormatHelper.escapeHtml(text).replace(/\n/g, '<br>')}</p>`
+    : '<p></p>'
+
   try {
     await api.replyThread(activeMailboxId.value, activeThreadId.value, {
       mailbox_id: activeMailboxId.value,
-      html: `<p>${FormatHelper.escapeHtml(body).replace(/\n/g, '<br>')}</p>`,
-      text: body,
+      html,
+      text,
+      attachments,
     })
     notify('Ответ отправлен')
     await openThread(activeThreadId.value)
     await loadThreads()
+  } catch (err) {
+    notify(err.message, 'error')
+  }
+}
+
+async function toggleThreadStar(threadId, starred) {
+  if (!activeMailboxId.value) return
+  try {
+    await api.starThread(activeMailboxId.value, threadId, starred)
+    threads.value = threads.value.map((t) =>
+      t.id === threadId ? { ...t, is_starred: starred } : t,
+    )
+    if (activeThread.value?.id === threadId) {
+      activeThread.value = { ...activeThread.value, is_starred: starred }
+    }
+    await loadThreads(false, true)
+    notify(starred ? 'Переписка в важных' : 'Убрано из важных')
+  } catch (err) {
+    notify(err.message, 'error')
+  }
+}
+
+async function toggleMessageStar(emailId, starred) {
+  if (!activeMailboxId.value) return
+  try {
+    await api.starEmail(activeMailboxId.value, emailId, starred)
+    if (activeThread.value?.messages) {
+      activeThread.value = {
+        ...activeThread.value,
+        messages: activeThread.value.messages.map((m) =>
+          m.id === emailId ? { ...m, is_starred: starred } : m,
+        ),
+      }
+    }
+    await loadThreads(false, true)
+  } catch (err) {
+    notify(err.message, 'error')
+  }
+}
+
+async function deleteMessage(emailId) {
+  if (!activeMailboxId.value) return
+  if (!confirm('Удалить это сообщение? Оно скроется только у вас.')) return
+  try {
+    await api.deleteEmail(activeMailboxId.value, emailId)
+    if (activeThread.value?.messages) {
+      const remaining = activeThread.value.messages.filter((m) => m.id !== emailId)
+      if (!remaining.length) {
+        closeConversation()
+      } else {
+        activeThread.value = {
+          ...activeThread.value,
+          messages: remaining,
+          message_count: remaining.length,
+        }
+      }
+    }
+    await loadThreads(false, true)
+    notify('Сообщение удалено')
   } catch (err) {
     notify(err.message, 'error')
   }
@@ -254,17 +391,23 @@ async function logout() {
   user.value = null
   mailboxes.value = []
   threads.value = []
+  unreadCounts.value = {}
+  unreadTotal.value = 0
   activeMailboxId.value = null
   activeThreadId.value = null
   activeThread.value = null
 }
 
 function openAdminPanel() {
-  if (isAdmin.value) settingsOpen.value = true
+  if (!isAdmin.value) return
+  settingsInitialTab.value = 'integration'
+  settingsOpen.value = true
 }
 
 function openUsersPanel() {
-  if (isAdmin.value) usersOpen.value = true
+  if (!isAdmin.value) return
+  settingsInitialTab.value = 'users'
+  settingsOpen.value = true
 }
 
 onMounted(async () => {
@@ -329,10 +472,13 @@ onUnmounted(() => {
         :active-mailbox="activeMailbox"
         :active-thread-id="activeThreadId"
         :loading="loadingThreads"
+        :unread-total="unreadTotal"
         :is-admin="isAdmin"
         :notifications-on="notificationsOn"
         @select="openThread"
         @refresh="refreshThreads"
+        @mark-all-read="markAllRead"
+        @star-thread="toggleThreadStar"
         @menu="sidebarOpen = true"
         @compose="openCompose"
         @settings="openAdminPanel"
@@ -348,6 +494,10 @@ onUnmounted(() => {
         :loading="loadingThread"
         @reply="handleReply"
         @back="closeConversation"
+        @star-thread="toggleThreadStar"
+        @star-message="toggleMessageStar"
+        @delete-message="deleteMessage"
+        @notify="notify"
       />
 
       <button
@@ -370,22 +520,15 @@ onUnmounted(() => {
       :active-mailbox-id="activeMailboxId"
       @close="composeOpen = false"
       @send="handleSend"
+      @notify="notify"
     />
 
     <SettingsModal
       v-if="isAdmin"
       :open="settingsOpen"
-      @close="settingsOpen = false"
-      @changed="onSettingsChanged"
-      @open-users="usersOpen = true"
-      @notify="notify"
-    />
-
-    <UsersModal
-      v-if="isAdmin"
-      :open="usersOpen"
+      :initial-tab="settingsInitialTab"
       :current-user-id="user.id"
-      @close="usersOpen = false"
+      @close="settingsOpen = false"
       @changed="onSettingsChanged"
       @notify="notify"
     />

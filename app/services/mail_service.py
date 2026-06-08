@@ -1,13 +1,16 @@
 """Бизнес-логика работы с почтой (данные из SQLite + синхронизация Resend)."""
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.config.manager import ConfigManager
-from app.models.dto import ReplyEmailDto, SendEmailDto
+from app.models.dto import AttachmentDto, ReplyEmailDto, SendEmailDto
 from app.models.mailbox import Mailbox
 from app.repositories.email_repository import EmailRepository
+from app.repositories.email_flags_repository import EmailFlagsRepository
+from app.repositories.read_state_repository import ReadStateRepository
 from app.services.resend_client import ResendApiClient
 from app.services.sync_service import SyncService
 from app.services.thread_service import Thread, ThreadService
@@ -18,17 +21,24 @@ from app.utils.email_helper import EmailHelper
 class MailService:
     """Координирует отправку, локальное хранение и цепочки переписки."""
 
+    MAX_ATTACHMENTS = 10
+    MAX_ATTACHMENT_BYTES = 35 * 1024 * 1024
+
     def __init__(
         self,
         config_manager: ConfigManager,
         resend_client: ResendApiClient,
         email_repository: EmailRepository,
         sync_service: SyncService,
+        read_state_repository: ReadStateRepository,
+        email_flags_repository: EmailFlagsRepository,
     ) -> None:
         self._config = config_manager
         self._client = resend_client
         self._emails = email_repository
         self._sync = sync_service
+        self._reads = read_state_repository
+        self._flags = email_flags_repository
         self._parser = AddressParser()
         self._threads = ThreadService()
         self._helper = EmailHelper()
@@ -43,9 +53,45 @@ class MailService:
         return box
 
     @staticmethod
-    def _require_body(html: str, text: str, error_message: str) -> None:
-        if not html.strip() and not text.strip():
+    def _require_content(
+        html: str,
+        text: str,
+        attachments: list[AttachmentDto],
+        error_message: str,
+    ) -> None:
+        if not html.strip() and not text.strip() and not attachments:
             raise HTTPException(status_code=400, detail=error_message)
+
+    def _build_attachments(self, attachments: list[AttachmentDto]) -> list[dict[str, Any]]:
+        if not attachments:
+            return []
+        if len(attachments) > self.MAX_ATTACHMENTS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Не более {self.MAX_ATTACHMENTS} файлов за раз",
+            )
+
+        payload: list[dict[str, Any]] = []
+        total_bytes = 0
+        for item in attachments:
+            filename = item.filename.strip()
+            if not filename:
+                raise HTTPException(status_code=400, detail="Имя файла не может быть пустым")
+
+            content = item.content.strip()
+            if content.startswith("data:") and "," in content:
+                content = content.split(",", 1)[1]
+
+            approx_size = (len(content) * 3) // 4
+            total_bytes += approx_size
+            if total_bytes > self.MAX_ATTACHMENT_BYTES:
+                raise HTTPException(status_code=400, detail="Общий размер вложений больше 35 МБ")
+
+            att: dict[str, Any] = {"filename": filename, "content": content}
+            if item.content_type.strip():
+                att["content_type"] = item.content_type.strip()
+            payload.append(att)
+        return payload
 
     def sync_mailbox(self) -> dict[str, Any]:
         """Полная синхронизация с Resend (ручной запуск)."""
@@ -82,12 +128,91 @@ class MailService:
             except HTTPException:
                 continue
 
+    def _list_message_attachments(self, email_id: str, source: str) -> list[dict[str, Any]]:
+        try:
+            result = self._client.list_attachments(email_id, source)
+            items = result.get("data") if isinstance(result, dict) else result
+            if not isinstance(items, list):
+                return []
+            return [
+                {
+                    "id": item.get("id"),
+                    "filename": item.get("filename") or "file",
+                    "content_type": item.get("content_type"),
+                    "size": item.get("size"),
+                }
+                for item in items
+                if item.get("id")
+            ]
+        except HTTPException:
+            return []
+
+    def _attach_metadata_to_detail(self, detail: dict[str, Any]) -> dict[str, Any]:
+        messages = detail.get("messages") or []
+        for msg in messages:
+            source = msg.get("source") or ("received" if msg.get("direction") == "inbound" else "sent")
+            msg["attachments"] = self._list_message_attachments(msg.get("id", ""), source)
+        return detail
+
     def _find_thread_fast(self, mailbox: Mailbox, thread_id: str) -> Thread | None:
         received, sent = self._emails_from_db()
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
         return next((t for t in threads if t.id == thread_id), None)
 
-    def list_threads(self, mailbox_id: str, sync: bool = False) -> dict[str, Any]:
+    @staticmethod
+    def _filter_deleted_messages(thread: Thread, email_flags: dict[str, dict[str, bool]]) -> bool:
+        thread.messages = [
+            m for m in thread.messages
+            if not email_flags.get(m.id, {}).get("is_deleted")
+        ]
+        return bool(thread.messages)
+
+    @staticmethod
+    def _thread_is_starred(
+        thread: Thread,
+        email_flags: dict[str, dict[str, bool]],
+        thread_stars: dict[str, bool],
+    ) -> bool:
+        if thread_stars.get(thread.id):
+            return True
+        return any(email_flags.get(m.id, {}).get("is_starred") for m in thread.messages)
+
+    @staticmethod
+    def _message_star_map(
+        thread: Thread,
+        email_flags: dict[str, dict[str, bool]],
+    ) -> dict[str, bool]:
+        return {
+            m.id: bool(email_flags.get(m.id, {}).get("is_starred"))
+            for m in thread.messages
+        }
+
+    def _email_in_mailbox(self, mailbox: Mailbox, email_id: str) -> bool:
+        received, sent = self._emails_from_db()
+        threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
+        return any(m.id == email_id for t in threads for m in t.messages)
+
+    def _prepare_threads(
+        self,
+        threads: list[Thread],
+        user_id: str,
+        mailbox_id: str,
+    ) -> list[dict[str, Any]]:
+        read_map = self._reads.list_for_mailbox(user_id, mailbox_id)
+        email_flags = self._flags.list_email_flags(user_id)
+        thread_stars = self._flags.list_thread_stars(user_id, mailbox_id)
+        summaries: list[dict[str, Any]] = []
+        for thread in threads:
+            if not self._filter_deleted_messages(thread, email_flags):
+                continue
+            starred = self._thread_is_starred(thread, email_flags, thread_stars)
+            summaries.append(thread.to_summary(read_map.get(thread.id), is_starred=starred))
+        summaries.sort(key=lambda s: s.get("last_message_at") or "", reverse=True)
+        starred_list = [s for s in summaries if s.get("is_starred")]
+        regular = [s for s in summaries if not s.get("is_starred")]
+        return starred_list + regular
+
+    def list_threads(self, mailbox_id: str, user_id: str, sync: bool = False) -> dict[str, Any]:
         """Список цепочек из SQLite; sync=True — быстрая догрузка новых с Resend."""
         mailbox = self._require_mailbox(mailbox_id)
         if sync:
@@ -96,28 +221,153 @@ class MailService:
             sync_info = {"skipped": True, "from_cache": True}
         received, sent = self._emails_from_db()
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
+        summaries = self._prepare_threads(threads, user_id, mailbox_id)
+        unread_total = sum(1 for s in summaries if s.get("is_unread"))
         return {
             "mailbox_id": mailbox_id,
-            "threads": [t.to_summary() for t in threads],
-            "total": len(threads),
+            "threads": summaries,
+            "total": len(summaries),
+            "unread_total": unread_total,
             "sync": sync_info,
         }
 
-    def get_thread(self, mailbox_id: str, thread_id: str) -> dict[str, Any]:
+    def get_thread(self, mailbox_id: str, thread_id: str, user_id: str) -> dict[str, Any]:
         """Полная цепочка из SQLite."""
         mailbox = self._require_mailbox(mailbox_id)
         thread = self._find_thread_fast(mailbox, thread_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
+
+        email_flags = self._flags.list_email_flags(user_id)
+        thread_stars = self._flags.list_thread_stars(user_id, mailbox_id)
+        if not self._filter_deleted_messages(thread, email_flags):
+            raise HTTPException(status_code=404, detail="Цепочка не найдена")
+
         self._enrich_thread_from_db_or_api(thread)
-        return thread.to_detail()
+        read_at = self._reads.get_read_at(user_id, mailbox_id, thread_id)
+        starred = self._thread_is_starred(thread, email_flags, thread_stars)
+        detail = thread.to_detail(
+            read_at,
+            is_starred=starred,
+            message_stars=self._message_star_map(thread, email_flags),
+        )
+        return self._attach_metadata_to_detail(detail)
+
+    def mark_thread_read(self, mailbox_id: str, thread_id: str, user_id: str) -> dict[str, Any]:
+        """Отмечает цепочку прочитанной для пользователя."""
+        mailbox = self._require_mailbox(mailbox_id)
+        thread = self._find_thread_fast(mailbox, thread_id)
+        if not thread:
+            raise HTTPException(status_code=404, detail="Цепочка не найдена")
+        read_at = thread.last_message_at or datetime.now(timezone.utc).isoformat()
+        self._reads.mark_read(user_id, mailbox_id, thread_id, read_at)
+        return {"ok": True, "thread_id": thread_id, "read_at": read_at}
+
+    def mark_all_threads_read(self, mailbox_id: str, user_id: str) -> dict[str, Any]:
+        """Отмечает все цепочки ящика прочитанными."""
+        mailbox = self._require_mailbox(mailbox_id)
+        received, sent = self._emails_from_db()
+        threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
+        to_mark = {t.id: t.last_message_at for t in threads if t.last_message_at}
+        self._reads.mark_many(user_id, mailbox_id, to_mark)
+        return {"ok": True, "marked": len(to_mark)}
+
+    def unread_counts_for_user(self, user) -> dict[str, int]:
+        """Непрочитанные цепочки по доступным пользователю ящикам."""
+        boxes = self._config.list_mailboxes_for_user(user)
+        return self.unread_counts(user.id, [b.id for b in boxes])
+
+    def unread_counts(self, user_id: str, mailbox_ids: list[str]) -> dict[str, int]:
+        """Количество непрочитанных цепочек по каждому ящику."""
+        if not mailbox_ids:
+            return {}
+        received, sent = self._emails_from_db()
+        counts: dict[str, int] = {}
+        for mailbox_id in mailbox_ids:
+            try:
+                mailbox = self._config.require_mailbox(mailbox_id)
+            except ValueError:
+                continue
+            threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
+            summaries = self._prepare_threads(threads, user_id, mailbox_id)
+            counts[mailbox_id] = sum(1 for s in summaries if s.get("is_unread"))
+        return counts
+
+    def star_thread(
+        self,
+        mailbox_id: str,
+        thread_id: str,
+        user_id: str,
+        starred: bool,
+    ) -> dict[str, Any]:
+        mailbox = self._require_mailbox(mailbox_id)
+        thread = self._find_thread_fast(mailbox, thread_id)
+        if not thread:
+            raise HTTPException(status_code=404, detail="Цепочка не найдена")
+        self._flags.set_thread_starred(user_id, mailbox_id, thread_id, starred)
+        return {"ok": True, "thread_id": thread_id, "starred": starred}
+
+    def star_email(
+        self,
+        mailbox_id: str,
+        email_id: str,
+        user_id: str,
+        starred: bool,
+    ) -> dict[str, Any]:
+        mailbox = self._require_mailbox(mailbox_id)
+        if not self._email_in_mailbox(mailbox, email_id):
+            raise HTTPException(status_code=404, detail="Письмо не найдено")
+        self._flags.set_email_starred(user_id, email_id, starred)
+        return {"ok": True, "email_id": email_id, "starred": starred}
+
+    def delete_email(
+        self,
+        mailbox_id: str,
+        email_id: str,
+        user_id: str,
+    ) -> dict[str, Any]:
+        mailbox = self._require_mailbox(mailbox_id)
+        if not self._email_in_mailbox(mailbox, email_id):
+            raise HTTPException(status_code=404, detail="Письмо не найдено")
+        self._flags.set_email_deleted(user_id, email_id, True)
+        return {"ok": True, "email_id": email_id, "deleted": True}
+
+    def get_attachment_download(
+        self,
+        mailbox_id: str,
+        email_id: str,
+        attachment_id: str,
+    ) -> dict[str, Any]:
+        mailbox = self._require_mailbox(mailbox_id)
+        if not self._email_in_mailbox(mailbox, email_id):
+            raise HTTPException(status_code=404, detail="Письмо не найдено")
+
+        stored = self._emails.get_by_id(email_id)
+        if not stored:
+            raise HTTPException(status_code=404, detail="Письмо не найдено")
+
+        source = stored.get("source", "sent")
+        meta = self._client.get_attachment(email_id, attachment_id, source)
+        download_url = meta.get("download_url") if isinstance(meta, dict) else None
+        if not download_url:
+            raise HTTPException(status_code=404, detail="Ссылка на файл недоступна")
+        return {
+            "download_url": download_url,
+            "filename": meta.get("filename") or "file",
+        }
 
     def send_email(self, dto: SendEmailDto) -> dict[str, Any]:
         mailbox = self._require_mailbox(dto.mailbox_id)
         to_list = self._parser.parse(dto.to)
         if not to_list:
             raise HTTPException(status_code=400, detail="Укажите получателя.")
-        self._require_body(dto.html, dto.text, "Текст письма не может быть пустым.")
+        attachments = self._build_attachments(dto.attachments)
+        self._require_content(
+            dto.html,
+            dto.text,
+            dto.attachments,
+            "Укажите текст письма или прикрепите файл.",
+        )
 
         params: dict[str, Any] = {
             "from": mailbox.from_address(),
@@ -128,6 +378,8 @@ class MailService:
             params["html"] = dto.html
         if dto.text.strip():
             params["text"] = dto.text
+        if attachments:
+            params["attachments"] = attachments
 
         cc = self._parser.parse(dto.cc)
         bcc = self._parser.parse(dto.bcc)
@@ -165,7 +417,13 @@ class MailService:
         dto: ReplyEmailDto,
     ) -> dict[str, Any]:
         mailbox = self._require_mailbox(mailbox_id)
-        self._require_body(dto.html, dto.text, "Текст ответа не может быть пустым.")
+        attachments = self._build_attachments(dto.attachments)
+        self._require_content(
+            dto.html,
+            dto.text,
+            dto.attachments,
+            "Укажите текст ответа или прикрепите файл.",
+        )
 
         thread = self._find_thread_fast(mailbox, thread_id)
         if not thread:
@@ -188,6 +446,8 @@ class MailService:
             params["html"] = dto.html
         if dto.text.strip():
             params["text"] = dto.text
+        if attachments:
+            params["attachments"] = attachments
 
         headers: dict[str, str] = {}
         if last_id:

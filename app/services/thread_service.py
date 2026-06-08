@@ -39,7 +39,18 @@ class ThreadMessage:
             "html": self.html,
             "text": self.text,
             "last_event": self.last_event,
+            "is_unread": False,
         }
+
+    def to_dict_with_read(self, read_at: str | None, *, is_starred: bool = False) -> dict[str, Any]:
+        """Сериализация с флагами непрочитанного и избранного."""
+        data = self.to_dict()
+        data["is_unread"] = (
+            self.direction == "inbound"
+            and (not read_at or self.created_at > read_at)
+        )
+        data["is_starred"] = is_starred
+        return data
 
 
 @dataclass
@@ -89,9 +100,18 @@ class Thread:
                 return EmailHelper.display_name(msg.to_addrs[0])
         return "—"
 
-    def to_summary(self) -> dict[str, Any]:
+    @staticmethod
+    def _unread_stats(messages: list[ThreadMessage], read_at: str | None) -> tuple[bool, int]:
+        inbound = [m for m in messages if m.direction == "inbound"]
+        if not inbound:
+            return False, 0
+        unread = [m for m in inbound if not read_at or m.created_at > read_at]
+        return len(unread) > 0, len(unread)
+
+    def to_summary(self, read_at: str | None = None, *, is_starred: bool = False) -> dict[str, Any]:
         """Краткое описание цепочки для списка."""
         last = sorted(self.messages, key=lambda m: m.created_at)[-1] if self.messages else None
+        is_unread, unread_count = self._unread_stats(self.messages, read_at)
         return {
             "id": self.id,
             "subject": self.subject,
@@ -102,14 +122,30 @@ class Thread:
             "preview": self.preview,
             "mailbox_id": self.mailbox_id,
             "last_direction": last.direction if last else "inbound",
+            "is_unread": is_unread,
+            "unread_count": unread_count,
+            "is_starred": is_starred,
         }
 
-    def to_detail(self) -> dict[str, Any]:
+    def to_detail(
+        self,
+        read_at: str | None = None,
+        *,
+        is_starred: bool = False,
+        message_stars: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
         """Полная цепочка с сообщениями."""
+        stars = message_stars or {}
         sorted_msgs = sorted(self.messages, key=lambda m: m.created_at)
         return {
-            **self.to_summary(),
-            "messages": [m.to_dict() for m in sorted_msgs],
+            **self.to_summary(read_at, is_starred=is_starred),
+            "messages": [
+                m.to_dict_with_read(
+                    read_at,
+                    is_starred=is_starred or stars.get(m.id, False),
+                )
+                for m in sorted_msgs
+            ],
         }
 
 

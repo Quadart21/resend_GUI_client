@@ -72,3 +72,23 @@ class ResendApiClient:
             return resend.Emails.Receiving.get(email_id)
         except Exception as exc:
             raise self._wrap_error(exc) from exc
+
+    def list_attachments(self, email_id: str, source: str) -> dict:
+        """Список вложений письма (source: received | sent)."""
+        self._activate()
+        try:
+            if source == "received":
+                return resend.Emails.Receiving.Attachments.list(email_id)
+            return resend.Emails.Attachments.list(email_id)
+        except Exception as exc:
+            raise self._wrap_error(exc) from exc
+
+    def get_attachment(self, email_id: str, attachment_id: str, source: str) -> dict:
+        """Метаданные вложения с download_url."""
+        self._activate()
+        try:
+            if source == "received":
+                return resend.Emails.Receiving.Attachments.get(email_id, attachment_id)
+            return resend.Emails.Attachments.get(email_id, attachment_id)
+        except Exception as exc:
+            raise self._wrap_error(exc) from exc

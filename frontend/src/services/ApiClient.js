@@ -92,8 +92,42 @@ export class ApiClient {
     return this.request(`/mailboxes/${mailboxId}/threads${q}`)
   }
 
+  markThreadRead(mailboxId, threadId) {
+    return this.request(`/mailboxes/${mailboxId}/threads/${threadId}/read`, { method: 'POST' })
+  }
+
+  markAllThreadsRead(mailboxId) {
+    return this.request(`/mailboxes/${mailboxId}/threads/read-all`, { method: 'POST' })
+  }
+
+  unreadCounts() {
+    return this.request('/mailboxes/unread-counts')
+  }
+
+  deleteEmail(mailboxId, emailId) {
+    return this.request(`/mailboxes/${mailboxId}/emails/${emailId}`, { method: 'DELETE' })
+  }
+
+  starThread(mailboxId, threadId, starred) {
+    return this.request(`/mailboxes/${mailboxId}/threads/${threadId}/star`, {
+      method: 'POST',
+      body: JSON.stringify({ starred }),
+    })
+  }
+
+  starEmail(mailboxId, emailId, starred) {
+    return this.request(`/mailboxes/${mailboxId}/emails/${emailId}/star`, {
+      method: 'POST',
+      body: JSON.stringify({ starred }),
+    })
+  }
+
   getThread(mailboxId, threadId) {
     return this.request(`/mailboxes/${mailboxId}/threads/${threadId}`)
+  }
+
+  attachmentUrl(mailboxId, emailId, attachmentId) {
+    return `${this.baseUrl}/mailboxes/${mailboxId}/emails/${emailId}/attachments/${attachmentId}`
   }
 
   sendEmail(body) {

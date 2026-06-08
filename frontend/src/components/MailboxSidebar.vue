@@ -77,8 +77,8 @@ const emit = defineEmits([
         </div>
         <span
           v-if="threadCounts[box.id]"
-          class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-          :class="box.id === activeId ? 'bg-accent text-white' : 'bg-surface-active text-zinc-400'"
+          class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+          :class="box.id === activeId ? 'bg-white text-accent' : 'bg-accent text-white'"
         >
           {{ threadCounts[box.id] }}
         </span>

@@ -69,6 +69,41 @@ class DatabaseManager:
 
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+    CREATE TABLE IF NOT EXISTS thread_reads (
+        user_id    TEXT NOT NULL,
+        mailbox_id TEXT NOT NULL,
+        thread_id  TEXT NOT NULL,
+        read_at    TEXT NOT NULL,
+        PRIMARY KEY (user_id, mailbox_id, thread_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_thread_reads_mailbox
+        ON thread_reads(user_id, mailbox_id);
+
+    CREATE TABLE IF NOT EXISTS email_user_flags (
+        user_id    TEXT NOT NULL,
+        email_id   TEXT NOT NULL,
+        is_starred INTEGER NOT NULL DEFAULT 0,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, email_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS thread_stars (
+        user_id    TEXT NOT NULL,
+        mailbox_id TEXT NOT NULL,
+        thread_id  TEXT NOT NULL,
+        is_starred INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, mailbox_id, thread_id),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_thread_stars_mailbox
+        ON thread_stars(user_id, mailbox_id);
     """
 
     def __init__(self, db_path: Path | None = None) -> None:

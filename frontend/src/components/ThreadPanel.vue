@@ -7,12 +7,13 @@ const props = defineProps({
   activeMailbox: { type: Object, default: null },
   activeThreadId: { type: String, default: null },
   loading: { type: Boolean, default: false },
+  unreadTotal: { type: Number, default: 0 },
   isAdmin: { type: Boolean, default: false },
   notificationsOn: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
-  'select', 'refresh', 'menu', 'compose', 'settings', 'logout', 'toggle-notifications',
+  'select', 'refresh', 'mark-all-read', 'star-thread', 'menu', 'compose', 'settings', 'logout', 'toggle-notifications',
 ])
 
 const search = ref('')
@@ -45,9 +46,25 @@ watch(
         </svg>
       </button>
       <div class="min-w-0 flex-1">
-        <h2 class="truncate text-base font-bold tracking-tight">Переписки</h2>
+        <div class="flex items-center gap-2">
+          <h2 class="truncate text-base font-bold tracking-tight">Переписки</h2>
+          <span
+            v-if="unreadTotal"
+            class="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white"
+          >
+            {{ unreadTotal }}
+          </span>
+        </div>
         <p v-if="activeMailbox" class="truncate text-[11px] text-zinc-500">{{ activeMailbox.email }}</p>
       </div>
+      <button
+        v-if="unreadTotal"
+        type="button"
+        class="btn-ghost shrink-0 px-2 py-1 text-[10px] text-accent-hover"
+        @click="emit('mark-all-read')"
+      >
+        Прочитать всё
+      </button>
       <button type="button" class="btn-icon shrink-0" title="Обновить" @click="emit('refresh')">
         <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M23 4v6h-6M1 20v-6h6" />
@@ -86,14 +103,33 @@ watch(
           <span class="h-2 w-2 shrink-0 rounded-full" :style="{ background: activeMailbox.color }" />
           {{ activeMailbox.email }}
         </div>
-        <h2 class="text-base font-bold tracking-tight">Переписки</h2>
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-bold tracking-tight">Переписки</h2>
+          <span
+            v-if="unreadTotal"
+            class="rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold text-white"
+          >
+            {{ unreadTotal }}
+          </span>
+        </div>
       </div>
-      <button type="button" class="btn-icon" title="Обновить" @click="emit('refresh')">
-        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 4v6h-6M1 20v-6h6" />
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-        </svg>
-      </button>
+      <div class="flex items-center gap-1">
+        <button
+          v-if="unreadTotal"
+          type="button"
+          class="btn-ghost px-2 py-1.5 text-xs text-accent-hover"
+          title="Прочитать всё"
+          @click="emit('mark-all-read')"
+        >
+          Прочитать всё
+        </button>
+        <button type="button" class="btn-icon" title="Обновить" @click="emit('refresh')">
+          <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6" />
+            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+          </svg>
+        </button>
+      </div>
     </header>
 
     <!-- Поиск -->
@@ -127,22 +163,73 @@ watch(
         :key="thread.id"
         type="button"
         class="relative w-full border-b border-border px-4 py-4 text-left transition active:bg-surface-hover md:py-3.5 md:hover:bg-surface-hover"
-        :class="thread.id === activeThreadId ? 'bg-surface-active' : ''"
+        :class="[
+          thread.id === activeThreadId ? 'bg-surface-active' : '',
+          thread.is_unread ? 'bg-accent/5' : '',
+          thread.is_starred ? 'border-l-2 border-l-amber-400/80' : '',
+        ]"
         @click="emit('select', thread.id)"
       >
+        <button
+          type="button"
+          class="absolute right-3 top-3 z-10 rounded-lg p-1.5 text-zinc-500 transition hover:bg-surface-hover hover:text-amber-400 md:top-3.5"
+          :class="thread.is_starred ? 'text-amber-400' : ''"
+          :title="thread.is_starred ? 'Убрать из важных' : 'Пометить как важное'"
+          @click.stop="emit('star-thread', thread.id, !thread.is_starred)"
+        >
+          <svg class="h-4 w-4" viewBox="0 0 24 24" :fill="thread.is_starred ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+          </svg>
+        </button>
+        <span
+          v-if="thread.is_unread"
+          class="absolute left-1.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-accent md:left-2"
+        />
         <div
           v-if="thread.id === activeThreadId"
           class="absolute bottom-0 left-0 top-0 w-[3px] rounded-r bg-accent"
         />
-        <div class="mb-1 flex items-baseline justify-between gap-2">
-          <span class="truncate text-[14px] font-semibold md:text-[13px]">{{ thread.correspondent }}</span>
-          <span class="shrink-0 text-[11px] text-zinc-500">{{ FormatHelper.formatDate(thread.last_message_at) }}</span>
+        <div class="mb-1 flex items-baseline justify-between gap-2 pr-8">
+          <span
+            class="truncate text-[14px] md:text-[13px]"
+            :class="thread.is_unread ? 'font-bold text-zinc-50' : 'font-semibold'"
+          >
+            {{ thread.correspondent }}
+          </span>
+          <span
+            class="shrink-0 text-[11px]"
+            :class="thread.is_unread ? 'font-semibold text-accent-hover' : 'text-zinc-500'"
+          >
+            {{ FormatHelper.formatDate(thread.last_message_at) }}
+          </span>
         </div>
-        <div class="truncate text-[13px] text-zinc-400">{{ thread.subject }}</div>
-        <div class="truncate text-xs text-zinc-500">{{ thread.preview }}</div>
+        <div
+          class="truncate text-[13px]"
+          :class="thread.is_unread ? 'font-medium text-zinc-200' : 'text-zinc-400'"
+        >
+          {{ thread.subject }}
+        </div>
+        <div
+          class="truncate text-xs"
+          :class="thread.is_unread ? 'text-zinc-400' : 'text-zinc-500'"
+        >
+          {{ thread.preview }}
+        </div>
         <div class="mt-1.5 flex items-center gap-1.5">
+          <span
+            v-if="thread.is_unread && thread.unread_count"
+            class="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-bold text-accent-hover"
+          >
+            {{ thread.unread_count }} нов.
+          </span>
           <span class="rounded bg-surface-active px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
             {{ thread.message_count }} сообщ.
+          </span>
+          <span
+            v-if="thread.is_starred"
+            class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold text-amber-400"
+          >
+            важное
           </span>
           <span
             class="rounded px-1.5 py-0.5 text-[10px] font-medium"
