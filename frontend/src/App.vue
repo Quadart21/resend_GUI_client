@@ -5,6 +5,7 @@ import { FormatHelper } from '@/services/FormatHelper'
 import { HtmlHelper } from '@/services/HtmlHelper'
 import { NotificationWatcher } from '@/services/NotificationWatcher'
 import LoginView from '@/components/LoginView.vue'
+import AppShell from '@/components/AppShell.vue'
 import MailboxSidebar from '@/components/MailboxSidebar.vue'
 import ThreadPanel from '@/components/ThreadPanel.vue'
 import ConversationPanel from '@/components/ConversationPanel.vue'
@@ -501,23 +502,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="authLoading" class="grid h-[100dvh] place-items-center bg-[#09090b] text-zinc-500">
+  <div v-if="authLoading" class="grid h-[100dvh] place-items-center bg-canvas text-muted">
     <div class="h-8 w-8 animate-spin rounded-full border-[3px] border-border border-t-accent" />
   </div>
 
   <LoginView v-else-if="!user" @login="onLogin" />
 
-  <template v-else>
-    <div class="flex h-[100dvh] overflow-hidden">
-      <div
-        v-if="sidebarOpen"
-        class="fixed inset-0 z-40 bg-black/60 md:hidden"
-        aria-hidden="true"
-        @click="sidebarOpen = false"
-      />
-
+  <AppShell v-else :sidebar-open="sidebarOpen" @close-sidebar="sidebarOpen = false">
+    <template #sidebar>
       <MailboxSidebar
-        class="fixed inset-y-0 left-0 z-50 w-[min(18rem,88vw)] transition-transform duration-200 ease-out md:static md:z-auto md:w-60 md:translate-x-0"
+        class="fixed inset-y-0 left-0 z-50 w-[min(17rem,88vw)] transition-transform duration-200 ease-out md:static md:z-auto md:translate-x-0"
         :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
         :mailboxes="mailboxes"
         :active-id="activeMailboxId"
@@ -535,9 +529,11 @@ onUnmounted(() => {
         @toggle-notifications="toggleNotifications"
         @close="sidebarOpen = false"
       />
+    </template>
 
+    <template #list>
       <ThreadPanel
-        class="panel w-full shrink-0 md:w-[340px]"
+        class="flex"
         :class="showConversationMobile ? 'hidden md:flex' : 'flex'"
         v-model:search-query="searchQuery"
         :threads="displayedThreads"
@@ -549,8 +545,6 @@ onUnmounted(() => {
         :unread-total="unreadTotal"
         :has-more="hasMoreThreads"
         :loading-more="loadingThreads && emailLimit > 500"
-        :is-admin="isAdmin"
-        :notifications-on="notificationsOn"
         @select="openThread"
         @refresh="refreshThreads"
         @load-more="loadMoreThreads"
@@ -558,14 +552,12 @@ onUnmounted(() => {
         @star-thread="toggleThreadStar"
         @menu="sidebarOpen = true"
         @compose="openCompose"
-        @settings="openAdminPanel"
-        @profile="openProfile"
-        @logout="logout"
-        @toggle-notifications="toggleNotifications"
       />
+    </template>
 
+    <template #main>
       <ConversationPanel
-        class="min-w-0 flex-1 flex-col overflow-hidden"
+        class="flex min-w-0 flex-1 flex-col"
         :class="showConversationMobile ? 'fixed inset-0 z-30 flex md:static md:z-auto' : 'hidden md:flex'"
         :thread="activeThread"
         :mailbox="activeMailbox"
@@ -581,7 +573,7 @@ onUnmounted(() => {
       <button
         v-if="!showConversationMobile && mailboxes.length"
         type="button"
-        class="fixed bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition active:scale-95 md:hidden"
+        class="fixed bottom-5 right-5 z-20 grid h-14 w-14 place-items-center rounded-2xl bg-accent text-white shadow-float transition active:scale-95 md:hidden"
         style="margin-bottom: env(safe-area-inset-bottom); margin-right: env(safe-area-inset-right);"
         title="Написать"
         @click="openCompose"
@@ -590,8 +582,10 @@ onUnmounted(() => {
           <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
-    </div>
+    </template>
+  </AppShell>
 
+  <template v-if="user">
     <ComposeModal
       :open="composeOpen"
       :mailboxes="mailboxes"

@@ -3,6 +3,8 @@ import { ref, watch, computed } from 'vue'
 import { HtmlHelper } from '@/services/HtmlHelper'
 import { AttachmentHelper } from '@/services/AttachmentHelper'
 import RichTextEditor from '@/components/RichTextEditor.vue'
+import UiModal from '@/components/ui/UiModal.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -79,96 +81,75 @@ function submit() {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div
-      v-if="open"
-      class="fixed inset-0 z-[1000] flex items-end justify-center bg-black/65 p-0 backdrop-blur-sm sm:items-center sm:p-6"
-      @click.self="emit('close')"
-    >
-      <div class="flex max-h-[100dvh] w-full animate-slide-up flex-col overflow-hidden border-border bg-surface shadow-2xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-[14px] sm:border">
-        <header class="flex shrink-0 items-center justify-between border-b border-border px-4 py-4 sm:px-6 sm:py-5">
-          <h2 class="text-[17px] font-bold">Новое письмо</h2>
-          <button type="button" class="btn-icon" @click="emit('close')">✕</button>
-        </header>
-
-        <form class="flex-1 space-y-3.5 overflow-y-auto p-4 sm:p-6" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));" @submit.prevent="submit">
-          <label class="block">
-            <span class="mb-1.5 block text-xs font-semibold text-zinc-400">От ящика</span>
-            <select v-model="mailboxId" class="input-field" required>
-              <option v-for="box in mailboxes" :key="box.id" :value="box.id">
-                {{ box.name || box.email }} &lt;{{ box.email }}&gt;
-              </option>
-            </select>
-          </label>
-
-          <label class="block">
-            <span class="mb-1.5 block text-xs font-semibold text-zinc-400">Кому</span>
-            <input v-model="to" type="text" class="input-field" required placeholder="email@example.com" />
-          </label>
-
-          <label class="block">
-            <span class="mb-1.5 block text-xs font-semibold text-zinc-400">Тема</span>
-            <input v-model="subject" type="text" class="input-field" required placeholder="Тема письма" />
-          </label>
-
-          <label class="block">
-            <span class="mb-1.5 block text-xs font-semibold text-zinc-400">Сообщение</span>
-            <RichTextEditor v-model="bodyHtml" placeholder="Текст письма..." min-height="180px" />
-            <p
-              v-if="activeMailbox?.signature"
-              class="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-500"
-            >
-              Подпись ящика будет добавлена автоматически:<br>
-              <span class="text-zinc-400">{{ activeMailbox.signature }}</span>
-            </p>
-          </label>
-
-          <div class="block">
-            <div class="mb-1.5 flex items-center justify-between gap-2">
-              <span class="text-xs font-semibold text-zinc-400">Вложения</span>
-              <span class="text-[10px] text-zinc-500">до {{ limits.maxFiles }} файлов, {{ limits.maxTotalMb }} МБ</span>
-            </div>
-
-            <input
-              ref="fileInput"
-              type="file"
-              multiple
-              class="hidden"
-              @change="onFilesSelected"
-            />
-
-            <button
-              type="button"
-              class="btn-secondary w-full sm:w-auto"
-              :disabled="picking || attachments.length >= limits.maxFiles"
-              @click="fileInput?.click()"
-            >
-              {{ picking ? 'Загрузка...' : 'Прикрепить файлы' }}
-            </button>
-
-            <ul v-if="attachments.length" class="mt-2 space-y-1.5">
-              <li
-                v-for="(file, index) in attachments"
-                :key="`${file.filename}-${index}`"
-                class="flex items-center justify-between gap-2 rounded-lg border border-border bg-surface-elevated px-3 py-2 text-sm"
-              >
-                <div class="min-w-0">
-                  <div class="truncate font-medium text-zinc-200">{{ file.filename }}</div>
-                  <div class="text-[11px] text-zinc-500">{{ AttachmentHelper.formatSize(file.size) }}</div>
-                </div>
-                <button type="button" class="btn-ghost shrink-0 px-2 py-1 text-xs text-red-400" @click="removeAttachment(index)">
-                  Убрать
-                </button>
-              </li>
-            </ul>
-          </div>
-
-          <div class="flex justify-end gap-2.5 pt-2">
-            <button type="button" class="btn-secondary" @click="emit('close')">Отмена</button>
-            <button type="submit" class="btn-primary">Отправить</button>
-          </div>
-        </form>
+  <UiModal :open="open" title="Новое письмо" size="lg" @close="emit('close')">
+    <form id="compose-form" class="space-y-4" @submit.prevent="submit">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block sm:col-span-2">
+          <span class="field-label">От ящика</span>
+          <select v-model="mailboxId" class="input-field" required>
+            <option v-for="box in mailboxes" :key="box.id" :value="box.id">
+              {{ box.name || box.email }} &lt;{{ box.email }}&gt;
+            </option>
+          </select>
+        </label>
+        <label class="block sm:col-span-2">
+          <span class="field-label">Кому</span>
+          <input v-model="to" type="text" class="input-field" required placeholder="email@example.com" />
+        </label>
+        <label class="block sm:col-span-2">
+          <span class="field-label">Тема</span>
+          <input v-model="subject" type="text" class="input-field" required placeholder="Тема письма" />
+        </label>
       </div>
-    </div>
-  </Teleport>
+
+      <label class="block">
+        <span class="field-label">Сообщение</span>
+        <RichTextEditor v-model="bodyHtml" placeholder="Текст письма..." min-height="200px" />
+        <p v-if="activeMailbox?.signature" class="mt-2 text-[11px] text-muted">
+          Подпись будет добавлена: <span class="text-zinc-400">{{ activeMailbox.signature }}</span>
+        </p>
+      </label>
+
+      <div>
+        <div class="mb-2 flex items-center justify-between">
+          <span class="field-label mb-0">Вложения</span>
+          <span class="text-[10px] text-muted">до {{ limits.maxFiles }} файлов, {{ limits.maxTotalMb }} МБ</span>
+        </div>
+        <input ref="fileInput" type="file" multiple class="hidden" @change="onFilesSelected" />
+        <button
+          type="button"
+          class="btn-secondary"
+          :disabled="picking || attachments.length >= limits.maxFiles"
+          @click="fileInput?.click()"
+        >
+          <AppIcon name="attach" size="sm" />
+          {{ picking ? 'Загрузка...' : 'Прикрепить файлы' }}
+        </button>
+        <ul v-if="attachments.length" class="mt-2 space-y-1.5">
+          <li
+            v-for="(file, index) in attachments"
+            :key="`${file.filename}-${index}`"
+            class="flex items-center justify-between gap-2 rounded-xl border border-border bg-surface-elevated px-3 py-2 text-sm"
+          >
+            <div class="min-w-0">
+              <div class="truncate font-medium">{{ file.filename }}</div>
+              <div class="text-[11px] text-muted">{{ AttachmentHelper.formatSize(file.size) }}</div>
+            </div>
+            <button type="button" class="text-danger text-xs" @click="removeAttachment(index)">Убрать</button>
+          </li>
+        </ul>
+      </div>
+    </form>
+
+    <template #footer>
+      <button type="button" class="btn-secondary" @click="emit('close')">Отмена</button>
+      <button type="submit" form="compose-form" class="btn-primary">Отправить</button>
+    </template>
+  </UiModal>
 </template>
+
+<style scoped>
+.field-label {
+  @apply mb-1.5 block text-xs font-semibold text-muted;
+}
+</style>

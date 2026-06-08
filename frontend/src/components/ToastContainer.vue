@@ -1,5 +1,4 @@
 <script setup>
-/** Composable: toast-уведомления */
 import { ref } from 'vue'
 
 const message = ref('')
@@ -12,7 +11,7 @@ function show(msg, msgType = 'success') {
   type.value = msgType
   visible.value = true
   clearTimeout(timer)
-  timer = setTimeout(() => { visible.value = false }, 4000)
+  timer = setTimeout(() => { visible.value = false }, 4200)
 }
 
 defineExpose({ show })
@@ -23,12 +22,43 @@ defineExpose({ show })
     <Transition name="toast">
       <div
         v-if="visible"
-        class="fixed z-[2000] max-w-[calc(100vw-2rem)] animate-slide-up rounded-[10px] border bg-surface px-5 py-3.5 text-sm shadow-2xl"
-        style="bottom: max(1.5rem, env(safe-area-inset-bottom)); right: max(1.5rem, env(safe-area-inset-right)); left: auto;"
-        :class="type === 'error' ? 'border-red-500' : 'border-green-500'"
+        class="toast"
+        :class="type === 'error' ? 'toast-error' : 'toast-success'"
+        style="bottom: max(1.25rem, env(safe-area-inset-bottom)); right: max(1.25rem, env(safe-area-inset-right));"
       >
+        <span class="toast-dot" />
         {{ message }}
       </div>
     </Transition>
   </Teleport>
 </template>
+
+<style scoped>
+.toast {
+  @apply fixed z-[2000] flex max-w-[calc(100vw-2rem)] items-center gap-2.5 rounded-xl border bg-surface-elevated px-4 py-3 text-sm shadow-float;
+}
+.toast-success {
+  @apply border-success/40 text-zinc-100;
+}
+.toast-error {
+  @apply border-danger/40 text-zinc-100;
+}
+.toast-dot {
+  @apply h-2 w-2 shrink-0 rounded-full;
+}
+.toast-success .toast-dot {
+  @apply bg-success;
+}
+.toast-error .toast-dot {
+  @apply bg-danger;
+}
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+</style>

@@ -8,10 +8,9 @@
   }
 
   body {
-    @apply min-h-[100dvh] overflow-hidden;
+    @apply min-h-[100dvh] overflow-hidden bg-canvas text-zinc-50 antialiased;
   }
 
-  /* iOS не зумит поля при фокусе, если font-size >= 16px */
   @media (max-width: 767px) {
     .input-field {
       font-size: 16px;
@@ -21,33 +20,127 @@
 
 @layer components {
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-[10px] bg-accent px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-[10px] border border-border bg-surface-active px-4 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-surface-hover;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-border bg-surface-active px-4 py-2.5 text-sm font-semibold text-zinc-100 transition hover:bg-surface-hover active:scale-[0.98];
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-3 py-2 text-sm font-semibold text-accent-hover transition hover:bg-surface-hover;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-accent-hover transition hover:bg-surface-hover;
   }
 
   .btn-icon {
-    @apply inline-flex items-center justify-center rounded-[10px] border border-border bg-surface-active p-2 text-zinc-400 transition hover:bg-surface-hover hover:text-zinc-100;
+    @apply inline-flex items-center justify-center rounded-xl border border-border bg-surface-active p-2 text-muted transition hover:bg-surface-hover hover:text-zinc-100;
+  }
+
+  .btn-icon-ghost {
+    @apply border-transparent bg-transparent hover:bg-surface-hover;
   }
 
   .input-field {
-    @apply w-full rounded-[10px] border border-border bg-surface-elevated px-3 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-accent;
+    @apply w-full rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-muted focus:border-accent focus:ring-2 focus:ring-accent/20;
   }
 
   .panel {
     @apply flex flex-col overflow-hidden bg-surface;
   }
+
+  .panel-header {
+    @apply shrink-0 border-b border-border bg-surface-elevated/80 px-4 py-3 backdrop-blur-md;
+  }
+
+  .modal-overlay {
+    @apply fixed inset-0 z-[1000] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6;
+  }
+
+  .modal-panel {
+    @apply flex max-h-[100dvh] w-full animate-slide-up flex-col overflow-hidden border-border bg-surface shadow-float sm:max-h-[90vh] sm:rounded-2xl sm:border;
+  }
+
+  .modal-header {
+    @apply flex shrink-0 items-center justify-between gap-3 border-b border-border px-5 py-4 sm:px-6;
+  }
+
+  .modal-body {
+    @apply flex-1 overflow-y-auto p-5 sm:p-6;
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  }
+
+  .modal-footer {
+    @apply flex shrink-0 justify-end gap-2 border-t border-border px-5 py-4 sm:px-6;
+  }
+
+  .segmented {
+    @apply inline-flex w-full gap-1 rounded-xl bg-surface-active p-1;
+  }
+
+  .segmented-item {
+    @apply flex-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-muted transition hover:text-zinc-300;
+  }
+
+  .segmented-item-active {
+    @apply bg-surface-elevated text-zinc-100 shadow-sm;
+  }
+
+  .segmented-item-warn {
+    @apply bg-warning/15 text-warning;
+  }
+
+  .nav-item {
+    @apply flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-left text-[13px] text-muted transition hover:bg-surface-hover hover:text-zinc-100;
+  }
+
+  .nav-item-active {
+    @apply bg-accent-soft text-zinc-100;
+  }
+
+  .mailbox-item {
+    @apply relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition hover:bg-surface-hover;
+  }
+
+  .mailbox-item-active {
+    @apply bg-accent-soft;
+  }
+
+  .mailbox-item-active::before {
+    content: '';
+    @apply absolute bottom-2 left-0 top-2 w-[3px] rounded-r bg-accent;
+  }
+
+  .thread-item {
+    @apply relative w-full border-b border-border/80 px-4 py-3.5 text-left transition hover:bg-surface-hover;
+  }
+
+  .thread-item-active {
+    @apply bg-surface-active;
+  }
+
+  .thread-item-unread {
+    @apply bg-accent/[0.04];
+  }
+
+  .email-card {
+    @apply rounded-2xl border border-border bg-surface-elevated/60 p-4 shadow-sm transition hover:border-border-light;
+  }
+
+  .email-card-unread {
+    @apply border-accent/30 bg-accent/[0.06] ring-1 ring-accent/10;
+  }
+
+  .composer-bar {
+    @apply shrink-0 border-t border-border bg-surface-elevated/95 backdrop-blur-md;
+  }
+
+  .brand-mark {
+    @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm ring-1 ring-white/10;
+  }
 }
 
-/* Скроллбар */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
