@@ -20,6 +20,7 @@ class Mailbox:
     name: str = ""
     email: str = ""
     color: str = MAILBOX_COLORS[0]
+    signature: str = ""
 
     def from_address(self) -> str:
         """Формирует адрес отправителя для Resend API."""
@@ -38,6 +39,7 @@ class Mailbox:
             "name": self.name,
             "email": self.email,
             "color": self.color,
+            "signature": self.signature,
         }
 
     @classmethod
@@ -51,4 +53,5 @@ class Mailbox:
             name=str(data.get("name", "")).strip(),
             email=str(data.get("email", "")).strip().lower(),
             color=color,
+            signature=str(data.get("signature", "")).strip(),
         )

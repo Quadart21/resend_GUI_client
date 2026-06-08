@@ -29,7 +29,7 @@ class MailboxController:
                 self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             )
             try:
-                box = self._config.add_mailbox(body.name, body.email)
+                box = self._config.add_mailbox(body.name, body.email, body.signature)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return {"ok": True, "mailbox": box.to_dict()}
@@ -40,7 +40,9 @@ class MailboxController:
                 self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             )
             try:
-                box = self._config.update_mailbox(mailbox_id, body.name, body.email)
+                box = self._config.update_mailbox(
+                    mailbox_id, body.name, body.email, body.signature
+                )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             return {"ok": True, "mailbox": box.to_dict()}

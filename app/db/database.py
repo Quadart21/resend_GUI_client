@@ -18,6 +18,7 @@ class DatabaseManager:
         name       TEXT NOT NULL DEFAULT '',
         email      TEXT NOT NULL UNIQUE,
         color      TEXT NOT NULL DEFAULT '#6366f1',
+        signature  TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
     );
 
@@ -104,6 +105,26 @@ class DatabaseManager:
 
     CREATE INDEX IF NOT EXISTS idx_thread_stars_mailbox
         ON thread_stars(user_id, mailbox_id);
+
+    CREATE TABLE IF NOT EXISTS email_attachments (
+        email_id       TEXT NOT NULL,
+        attachment_id  TEXT NOT NULL,
+        filename       TEXT NOT NULL DEFAULT 'file',
+        content_type   TEXT,
+        size           INTEGER,
+        synced_at      TEXT NOT NULL,
+        PRIMARY KEY (email_id, attachment_id),
+        FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_email_attachments_email
+        ON email_attachments(email_id);
+
+    CREATE TABLE IF NOT EXISTS email_attachment_sync (
+        email_id   TEXT PRIMARY KEY,
+        synced_at  TEXT NOT NULL,
+        FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
+    );
     """
 
     def __init__(self, db_path: Path | None = None) -> None:
@@ -122,6 +143,16 @@ class DatabaseManager:
         """Применяет SQL-схему при первом запуске."""
         with self.connection() as conn:
             conn.executescript(self.SCHEMA)
+            self._migrate(conn)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        """Миграции для существующих БД."""
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(mailboxes)")}
+        if "signature" not in cols:
+            conn.execute(
+                "ALTER TABLE mailboxes ADD COLUMN signature TEXT NOT NULL DEFAULT ''"
+            )
+            conn.commit()
 
     def connection(self) -> sqlite3.Connection:
         """Открывает соединение с row_factory=Row."""

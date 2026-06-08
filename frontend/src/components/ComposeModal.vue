@@ -1,7 +1,8 @@
 <script setup>
-import { ref, watch } from 'vue'
-import { FormatHelper } from '@/services/FormatHelper'
+import { ref, watch, computed } from 'vue'
+import { HtmlHelper } from '@/services/HtmlHelper'
 import { AttachmentHelper } from '@/services/AttachmentHelper'
+import RichTextEditor from '@/components/RichTextEditor.vue'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -14,12 +15,16 @@ const emit = defineEmits(['close', 'send', 'notify'])
 const mailboxId = ref('')
 const to = ref('')
 const subject = ref('')
-const body = ref('')
+const bodyHtml = ref('')
 const attachments = ref([])
 const picking = ref(false)
 const fileInput = ref(null)
 
 const limits = AttachmentHelper.limits
+
+const activeMailbox = computed(() =>
+  props.mailboxes.find((b) => b.id === mailboxId.value) || null,
+)
 
 watch(
   () => props.open,
@@ -28,7 +33,7 @@ watch(
       mailboxId.value = props.activeMailboxId || props.mailboxes[0]?.id || ''
       to.value = ''
       subject.value = ''
-      body.value = ''
+      bodyHtml.value = ''
       attachments.value = []
     }
   },
@@ -53,21 +58,21 @@ function removeAttachment(index) {
 }
 
 function submit() {
-  const hasBody = body.value.trim().length > 0
+  const hasBody = !HtmlHelper.isEmpty(bodyHtml.value)
   const hasFiles = attachments.value.length > 0
   if (!hasBody && !hasFiles) {
     emit('notify', 'Укажите текст или прикрепите файл', 'error')
     return
   }
 
+  const html = hasBody ? HtmlHelper.sanitize(bodyHtml.value) : '<p></p>'
+
   emit('send', {
     mailbox_id: mailboxId.value,
     to: to.value,
     subject: subject.value,
-    html: hasBody
-      ? `<p>${FormatHelper.escapeHtml(body.value).replace(/\n/g, '<br>')}</p>`
-      : '<p></p>',
-    text: body.value,
+    html,
+    text: hasBody ? HtmlHelper.toPlainText(html) : '',
     attachments: AttachmentHelper.toPayload(attachments.value),
   })
 }
@@ -108,7 +113,14 @@ function submit() {
 
           <label class="block">
             <span class="mb-1.5 block text-xs font-semibold text-zinc-400">Сообщение</span>
-            <textarea v-model="body" rows="8" class="input-field resize-y" placeholder="Текст письма..." />
+            <RichTextEditor v-model="bodyHtml" placeholder="Текст письма..." min-height="180px" />
+            <p
+              v-if="activeMailbox?.signature"
+              class="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-500"
+            >
+              Подпись ящика будет добавлена автоматически:<br>
+              <span class="text-zinc-400">{{ activeMailbox.signature }}</span>
+            </p>
           </label>
 
           <div class="block">

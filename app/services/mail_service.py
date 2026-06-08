@@ -8,6 +8,8 @@ from fastapi import HTTPException
 from app.config.manager import ConfigManager
 from app.models.dto import AttachmentDto, ReplyEmailDto, SendEmailDto
 from app.models.mailbox import Mailbox
+from app.models.user import User
+from app.repositories.attachment_repository import AttachmentRepository
 from app.repositories.email_repository import EmailRepository
 from app.repositories.email_flags_repository import EmailFlagsRepository
 from app.repositories.read_state_repository import ReadStateRepository
@@ -32,6 +34,7 @@ class MailService:
         sync_service: SyncService,
         read_state_repository: ReadStateRepository,
         email_flags_repository: EmailFlagsRepository,
+        attachment_repository: AttachmentRepository,
     ) -> None:
         self._config = config_manager
         self._client = resend_client
@@ -39,6 +42,7 @@ class MailService:
         self._sync = sync_service
         self._reads = read_state_repository
         self._flags = email_flags_repository
+        self._attachments = attachment_repository
         self._parser = AddressParser()
         self._threads = ThreadService()
         self._helper = EmailHelper()
@@ -97,9 +101,46 @@ class MailService:
         """Полная синхронизация с Resend (ручной запуск)."""
         return self._sync.sync_all()
 
-    def _emails_from_db(self) -> tuple[list[dict], list[dict]]:
-        """Читает последние письма из локальной БД."""
-        return self._emails.list_received(), self._emails.list_sent()
+    DEFAULT_EMAIL_LIMIT = 500
+    EMAIL_LIMIT_STEP = 500
+    MAX_EMAIL_LIMIT = 5000
+
+    def _clamp_email_limit(self, email_limit: int) -> int:
+        step = self.EMAIL_LIMIT_STEP
+        limit = max(step, min(email_limit, self.MAX_EMAIL_LIMIT))
+        return ((limit + step - 1) // step) * step
+
+    def _deleted_ids(self, user_id: str | None) -> frozenset[str]:
+        if not user_id:
+            return frozenset()
+        return self._flags.list_deleted_ids(user_id)
+
+    def _emails_from_db(
+        self,
+        user_id: str | None = None,
+        email_limit: int = DEFAULT_EMAIL_LIMIT,
+    ) -> tuple[list[dict], list[dict]]:
+        """Читает письма из БД, исключая удалённые пользователем."""
+        limit = self._clamp_email_limit(email_limit)
+        exclude = self._deleted_ids(user_id)
+        return (
+            self._emails.list_received(limit=limit, exclude_ids=exclude),
+            self._emails.list_sent(limit=limit, exclude_ids=exclude),
+        )
+
+    @staticmethod
+    def _apply_signature(mailbox: Mailbox, html: str, text: str) -> tuple[str, str]:
+        sig = (mailbox.signature or "").strip()
+        if not sig:
+            return html, text
+        import html as html_module
+
+        sig_html = "<br>".join(html_module.escape(line) for line in sig.splitlines())
+        body_html = html.strip() or "<p></p>"
+        html_out = f"{body_html}<br><br><div class=\"email-signature\">{sig_html}</div>"
+        body_text = text.strip()
+        text_out = f"{body_text}\n\n--\n{sig}" if body_text else sig
+        return html_out, text_out
 
     def _enrich_thread_from_db_or_api(self, thread: Thread) -> None:
         """Дополняет тело письма из БД или Resend API (только для открытой цепочки)."""
@@ -128,13 +169,13 @@ class MailService:
             except HTTPException:
                 continue
 
-    def _list_message_attachments(self, email_id: str, source: str) -> list[dict[str, Any]]:
+    def _fetch_attachments_from_api(self, email_id: str, source: str) -> list[dict[str, Any]]:
         try:
             result = self._client.list_attachments(email_id, source)
             items = result.get("data") if isinstance(result, dict) else result
             if not isinstance(items, list):
                 return []
-            return [
+            normalized = [
                 {
                     "id": item.get("id"),
                     "filename": item.get("filename") or "file",
@@ -144,18 +185,43 @@ class MailService:
                 for item in items
                 if item.get("id")
             ]
+            self._attachments.replace_for_email(email_id, normalized)
+            return normalized
         except HTTPException:
             return []
 
+    def _list_message_attachments(self, email_id: str, source: str) -> list[dict[str, Any]]:
+        if self._attachments.has_cache(email_id):
+            return self._attachments.list_for_email(email_id)
+        return self._fetch_attachments_from_api(email_id, source)
+
     def _attach_metadata_to_detail(self, detail: dict[str, Any]) -> dict[str, Any]:
         messages = detail.get("messages") or []
+        if not messages:
+            return detail
+
+        email_ids = [msg.get("id") for msg in messages if msg.get("id")]
+        cached_map = self._attachments.list_for_emails(email_ids)
+
         for msg in messages:
-            source = msg.get("source") or ("received" if msg.get("direction") == "inbound" else "sent")
-            msg["attachments"] = self._list_message_attachments(msg.get("id", ""), source)
+            email_id = msg.get("id", "")
+            source = msg.get("source") or (
+                "received" if msg.get("direction") == "inbound" else "sent"
+            )
+            if self._attachments.has_cache(email_id):
+                msg["attachments"] = cached_map.get(email_id, [])
+            else:
+                msg["attachments"] = self._fetch_attachments_from_api(email_id, source)
         return detail
 
-    def _find_thread_fast(self, mailbox: Mailbox, thread_id: str) -> Thread | None:
-        received, sent = self._emails_from_db()
+    def _find_thread_fast(
+        self,
+        mailbox: Mailbox,
+        thread_id: str,
+        user_id: str | None = None,
+        email_limit: int = MAX_EMAIL_LIMIT,
+    ) -> Thread | None:
+        received, sent = self._emails_from_db(user_id, email_limit)
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
         return next((t for t in threads if t.id == thread_id), None)
 
@@ -187,8 +253,15 @@ class MailService:
             for m in thread.messages
         }
 
-    def _email_in_mailbox(self, mailbox: Mailbox, email_id: str) -> bool:
-        received, sent = self._emails_from_db()
+    def _email_in_mailbox(
+        self,
+        mailbox: Mailbox,
+        email_id: str,
+        user_id: str | None = None,
+    ) -> bool:
+        if email_id in self._deleted_ids(user_id):
+            return False
+        received, sent = self._emails_from_db(user_id, self.MAX_EMAIL_LIMIT)
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
         return any(m.id == email_id for t in threads for m in t.messages)
 
@@ -212,29 +285,82 @@ class MailService:
         regular = [s for s in summaries if not s.get("is_starred")]
         return starred_list + regular
 
-    def list_threads(self, mailbox_id: str, user_id: str, sync: bool = False) -> dict[str, Any]:
+    def list_threads(
+        self,
+        mailbox_id: str,
+        user_id: str,
+        sync: bool = False,
+        email_limit: int = DEFAULT_EMAIL_LIMIT,
+    ) -> dict[str, Any]:
         """Список цепочек из SQLite; sync=True — быстрая догрузка новых с Resend."""
         mailbox = self._require_mailbox(mailbox_id)
+        limit = self._clamp_email_limit(email_limit)
         if sync:
             sync_info = self._sync.sync_incremental()
         else:
             sync_info = {"skipped": True, "from_cache": True}
-        received, sent = self._emails_from_db()
+        received, sent = self._emails_from_db(user_id, limit)
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
         summaries = self._prepare_threads(threads, user_id, mailbox_id)
         unread_total = sum(1 for s in summaries if s.get("is_unread"))
+        total_received = self._emails.count_by_source("received")
+        total_sent = self._emails.count_by_source("sent")
+        has_more = len(received) >= limit or len(sent) >= limit
         return {
             "mailbox_id": mailbox_id,
             "threads": summaries,
             "total": len(summaries),
             "unread_total": unread_total,
+            "email_limit": limit,
+            "has_more": has_more,
+            "emails_in_db": total_received + total_sent,
             "sync": sync_info,
         }
+
+    def search_threads(self, user: User, query: str, limit: int = 50) -> dict[str, Any]:
+        """Поиск цепочек по всем доступным пользователю ящикам."""
+        needle = query.strip().lower()
+        if len(needle) < 2:
+            return {"query": query, "threads": [], "total": 0}
+
+        mailboxes = self._config.list_mailboxes_for_user(user)
+        results: list[dict[str, Any]] = []
+
+        for mailbox in mailboxes:
+            received, sent = self._emails_from_db(user.id, self.DEFAULT_EMAIL_LIMIT)
+            threads = self._threads.build_threads(
+                mailbox, received, sent, include_details=False
+            )
+            summaries = self._prepare_threads(threads, user.id, mailbox.id)
+            for summary in summaries:
+                haystack = " ".join(
+                    [
+                        summary.get("subject") or "",
+                        summary.get("correspondent") or "",
+                        summary.get("preview") or "",
+                        * (summary.get("participants") or []),
+                    ]
+                ).lower()
+                if needle not in haystack:
+                    continue
+                results.append(
+                    {
+                        **summary,
+                        "mailbox_id": mailbox.id,
+                        "mailbox_name": mailbox.name or mailbox.email,
+                        "mailbox_email": mailbox.email,
+                        "mailbox_color": mailbox.color,
+                    }
+                )
+
+        results.sort(key=lambda item: item.get("last_message_at") or "", reverse=True)
+        capped = results[: max(1, min(limit, 100))]
+        return {"query": query, "threads": capped, "total": len(results)}
 
     def get_thread(self, mailbox_id: str, thread_id: str, user_id: str) -> dict[str, Any]:
         """Полная цепочка из SQLite."""
         mailbox = self._require_mailbox(mailbox_id)
-        thread = self._find_thread_fast(mailbox, thread_id)
+        thread = self._find_thread_fast(mailbox, thread_id, user_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
 
@@ -256,7 +382,7 @@ class MailService:
     def mark_thread_read(self, mailbox_id: str, thread_id: str, user_id: str) -> dict[str, Any]:
         """Отмечает цепочку прочитанной для пользователя."""
         mailbox = self._require_mailbox(mailbox_id)
-        thread = self._find_thread_fast(mailbox, thread_id)
+        thread = self._find_thread_fast(mailbox, thread_id, user_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
         read_at = thread.last_message_at or datetime.now(timezone.utc).isoformat()
@@ -266,9 +392,10 @@ class MailService:
     def mark_all_threads_read(self, mailbox_id: str, user_id: str) -> dict[str, Any]:
         """Отмечает все цепочки ящика прочитанными."""
         mailbox = self._require_mailbox(mailbox_id)
-        received, sent = self._emails_from_db()
+        received, sent = self._emails_from_db(user_id)
         threads = self._threads.build_threads(mailbox, received, sent, include_details=False)
-        to_mark = {t.id: t.last_message_at for t in threads if t.last_message_at}
+        summaries = self._prepare_threads(threads, user_id, mailbox_id)
+        to_mark = {s["id"]: s["last_message_at"] for s in summaries if s.get("last_message_at")}
         self._reads.mark_many(user_id, mailbox_id, to_mark)
         return {"ok": True, "marked": len(to_mark)}
 
@@ -281,7 +408,7 @@ class MailService:
         """Количество непрочитанных цепочек по каждому ящику."""
         if not mailbox_ids:
             return {}
-        received, sent = self._emails_from_db()
+        received, sent = self._emails_from_db(user_id, self.MAX_EMAIL_LIMIT)
         counts: dict[str, int] = {}
         for mailbox_id in mailbox_ids:
             try:
@@ -301,7 +428,7 @@ class MailService:
         starred: bool,
     ) -> dict[str, Any]:
         mailbox = self._require_mailbox(mailbox_id)
-        thread = self._find_thread_fast(mailbox, thread_id)
+        thread = self._find_thread_fast(mailbox, thread_id, user_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
         self._flags.set_thread_starred(user_id, mailbox_id, thread_id, starred)
@@ -315,7 +442,7 @@ class MailService:
         starred: bool,
     ) -> dict[str, Any]:
         mailbox = self._require_mailbox(mailbox_id)
-        if not self._email_in_mailbox(mailbox, email_id):
+        if not self._email_in_mailbox(mailbox, email_id, user_id):
             raise HTTPException(status_code=404, detail="Письмо не найдено")
         self._flags.set_email_starred(user_id, email_id, starred)
         return {"ok": True, "email_id": email_id, "starred": starred}
@@ -327,7 +454,7 @@ class MailService:
         user_id: str,
     ) -> dict[str, Any]:
         mailbox = self._require_mailbox(mailbox_id)
-        if not self._email_in_mailbox(mailbox, email_id):
+        if not self._email_in_mailbox(mailbox, email_id, user_id):
             raise HTTPException(status_code=404, detail="Письмо не найдено")
         self._flags.set_email_deleted(user_id, email_id, True)
         return {"ok": True, "email_id": email_id, "deleted": True}
@@ -337,9 +464,12 @@ class MailService:
         mailbox_id: str,
         email_id: str,
         attachment_id: str,
+        user_id: str,
     ) -> dict[str, Any]:
         mailbox = self._require_mailbox(mailbox_id)
-        if not self._email_in_mailbox(mailbox, email_id):
+        if email_id in self._deleted_ids(user_id):
+            raise HTTPException(status_code=404, detail="Письмо не найдено")
+        if not self._email_in_mailbox(mailbox, email_id, user_id):
             raise HTTPException(status_code=404, detail="Письмо не найдено")
 
         stored = self._emails.get_by_id(email_id)
@@ -369,15 +499,17 @@ class MailService:
             "Укажите текст письма или прикрепите файл.",
         )
 
+        html, text = self._apply_signature(mailbox, dto.html, dto.text)
+
         params: dict[str, Any] = {
             "from": mailbox.from_address(),
             "to": to_list,
             "subject": dto.subject.strip(),
         }
-        if dto.html.strip():
-            params["html"] = dto.html
-        if dto.text.strip():
-            params["text"] = dto.text
+        if html.strip():
+            params["html"] = html
+        if text.strip():
+            params["text"] = text
         if attachments:
             params["attachments"] = attachments
 
@@ -403,8 +535,8 @@ class MailService:
                         "from": mailbox.from_address(),
                         "to": to_list,
                         "subject": dto.subject,
-                        "html": dto.html,
-                        "text": dto.text,
+                        "html": html,
+                        "text": text,
                     },
                     "sent",
                 )
@@ -415,6 +547,7 @@ class MailService:
         mailbox_id: str,
         thread_id: str,
         dto: ReplyEmailDto,
+        user_id: str | None = None,
     ) -> dict[str, Any]:
         mailbox = self._require_mailbox(mailbox_id)
         attachments = self._build_attachments(dto.attachments)
@@ -425,7 +558,7 @@ class MailService:
             "Укажите текст ответа или прикрепите файл.",
         )
 
-        thread = self._find_thread_fast(mailbox, thread_id)
+        thread = self._find_thread_fast(mailbox, thread_id, user_id)
         if not thread:
             raise HTTPException(status_code=404, detail="Цепочка не найдена")
 
@@ -437,15 +570,17 @@ class MailService:
         message_ids = self._threads.collect_message_ids(thread)
         last_id = message_ids[-1] if message_ids else None
 
+        html, text = self._apply_signature(mailbox, dto.html, dto.text)
+
         params: dict[str, Any] = {
             "from": mailbox.from_address(),
             "to": [recipient],
             "subject": subject,
         }
-        if dto.html.strip():
-            params["html"] = dto.html
-        if dto.text.strip():
-            params["text"] = dto.text
+        if html.strip():
+            params["html"] = html
+        if text.strip():
+            params["text"] = text
         if attachments:
             params["attachments"] = attachments
 
@@ -469,8 +604,8 @@ class MailService:
                         "from": mailbox.from_address(),
                         "to": [recipient],
                         "subject": subject,
-                        "html": dto.html,
-                        "text": dto.text,
+                        "html": html,
+                        "text": text,
                     },
                     "sent",
                 )

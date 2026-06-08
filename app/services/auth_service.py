@@ -115,6 +115,25 @@ class AuthService:
         self._sessions.delete_for_user(user_id)
         return updated, plain
 
+    def change_password(
+        self,
+        user: User,
+        current_password: str,
+        new_password: str,
+        *,
+        keep_token: str | None = None,
+    ) -> None:
+        """Смена пароля самим пользователем."""
+        stored = self._users.get_password_hash(user.id)
+        if not stored or not PasswordService.verify_password(current_password, stored):
+            raise ValueError("Неверный текущий пароль")
+        if len(new_password.strip()) < 4:
+            raise ValueError("Новый пароль должен быть не короче 4 символов")
+        if PasswordService.verify_password(new_password, stored):
+            raise ValueError("Новый пароль должен отличаться от текущего")
+        self._users.update(user.id, password_hash=PasswordService.hash_password(new_password))
+        self._sessions.delete_for_user(user.id, except_token=keep_token)
+
     def update_user(
         self,
         user_id: str,

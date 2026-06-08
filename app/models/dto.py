@@ -18,6 +18,7 @@ class MailboxCreateDto(BaseModel):
 
     name: str = Field(description="Отображаемое имя")
     email: str = Field(description="Email на вашем домене")
+    signature: str = Field(default="", description="Подпись в письмах")
 
 
 class MailboxUpdateDto(BaseModel):
@@ -25,6 +26,7 @@ class MailboxUpdateDto(BaseModel):
 
     name: str = Field(description="Отображаемое имя")
     email: str = Field(description="Email на вашем домене")
+    signature: str = Field(default="", description="Подпись в письмах")
 
 
 class AttachmentDto(BaseModel):
@@ -62,6 +64,13 @@ class StarDto(BaseModel):
     """Переключение избранного."""
 
     starred: bool = Field(description="true — в избранном / важное")
+
+
+class ChangePasswordDto(BaseModel):
+    """Смена пароля текущим пользователем."""
+
+    current_password: str = Field(min_length=1, description="Текущий пароль")
+    new_password: str = Field(min_length=4, description="Новый пароль")
 
 
 class LoginDto(BaseModel):

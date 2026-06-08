@@ -43,6 +43,17 @@ class EmailFlagsRepository:
             ).fetchall()
             return {r["thread_id"]: bool(r["is_starred"]) for r in rows}
 
+    def list_deleted_ids(self, user_id: str) -> frozenset[str]:
+        with self._db.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT email_id FROM email_user_flags
+                WHERE user_id = ? AND is_deleted = 1
+                """,
+                (user_id,),
+            ).fetchall()
+            return frozenset(r["email_id"] for r in rows)
+
     def set_email_starred(self, user_id: str, email_id: str, starred: bool) -> None:
         with self._db.connection() as conn:
             conn.execute(

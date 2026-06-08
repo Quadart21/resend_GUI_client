@@ -49,9 +49,15 @@ class SessionRepository:
             conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
             conn.commit()
 
-    def delete_for_user(self, user_id: str) -> None:
+    def delete_for_user(self, user_id: str, *, except_token: str | None = None) -> None:
         with self._db.connection() as conn:
-            conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            if except_token:
+                conn.execute(
+                    "DELETE FROM sessions WHERE user_id = ? AND token != ?",
+                    (user_id, except_token),
+                )
+            else:
+                conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             conn.commit()
 
     def purge_expired(self) -> None:

@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from fastapi import HTTPException
 
+from app.repositories.attachment_repository import AttachmentRepository
 from app.repositories.email_repository import EmailRepository
 from app.repositories.settings_repository import SettingsRepository
 from app.services.resend_client import ResendApiClient
@@ -120,6 +121,33 @@ class SyncService:
             stop_when_known=False,
         )
 
+    def __init__(
+        self,
+        client: ResendApiClient,
+        emails: EmailRepository,
+        settings: SettingsRepository,
+        attachments: AttachmentRepository | None = None,
+    ) -> None:
+        self._client = client
+        self._emails = emails
+        self._settings = settings
+        self._attachments = attachments
+
+    def sync_attachments_for_email(self, email_id: str, source: str) -> int:
+        """Загружает метаданные вложений из Resend и сохраняет в кэш."""
+        if not self._attachments or not self._can_sync():
+            return 0
+        try:
+            self._client._activate()
+            result = self._client.list_attachments(email_id, source)
+            items = result.get("data") if isinstance(result, dict) else result
+            if not isinstance(items, list):
+                items = []
+            self._attachments.replace_for_email(email_id, items)
+            return len(items)
+        except HTTPException:
+            return 0
+
     def store_received_by_id(self, email_id: str) -> None:
         """Сохраняет одно входящее письмо по ID (webhook)."""
         if not self._can_sync():
@@ -127,6 +155,7 @@ class SyncService:
         self._client._activate()
         full = self._client.get_received(email_id)
         self._emails.upsert_from_api(full, "received")
+        self.sync_attachments_for_email(email_id, "received")
         self._settings.set("emails_count", str(self._emails.count()))
 
     def store_sent_by_id(self, email_id: str) -> None:
@@ -136,4 +165,5 @@ class SyncService:
         self._client._activate()
         full = self._client.get_sent(email_id)
         self._emails.upsert_from_api(full, "sent")
+        self.sync_attachments_for_email(email_id, "sent")
         self._settings.set("emails_count", str(self._emails.count()))

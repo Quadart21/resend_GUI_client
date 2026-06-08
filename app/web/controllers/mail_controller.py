@@ -28,10 +28,18 @@ class MailController:
             mailbox_id: str,
             request: Request,
             sync: bool = False,
+            email_limit: int = 500,
         ) -> dict:
             user = self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             self._auth.require_mailbox_access(user, mailbox_id)
-            return self._mail.list_threads(mailbox_id, user.id, sync=sync)
+            return self._mail.list_threads(
+                mailbox_id, user.id, sync=sync, email_limit=email_limit
+            )
+
+        @router.get("/search/threads")
+        async def search_threads(request: Request, q: str = "", limit: int = 50) -> dict:
+            user = self._auth.require_user(request.cookies.get(SESSION_COOKIE))
+            return self._mail.search_threads(user, q, limit=limit)
 
         @router.get("/mailboxes/{mailbox_id}/threads/{thread_id}")
         async def get_thread(mailbox_id: str, thread_id: str, request: Request) -> dict:
@@ -88,7 +96,9 @@ class MailController:
         ):
             user = self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             self._auth.require_mailbox_access(user, mailbox_id)
-            data = self._mail.get_attachment_download(mailbox_id, email_id, attachment_id)
+            data = self._mail.get_attachment_download(
+                mailbox_id, email_id, attachment_id, user.id
+            )
             return RedirectResponse(data["download_url"], status_code=302)
 
         @router.post("/emails/send")
@@ -108,4 +118,4 @@ class MailController:
             self._auth.require_mailbox_access(user, mailbox_id)
             if body.mailbox_id != mailbox_id:
                 raise HTTPException(status_code=400, detail="mailbox_id не совпадает")
-            return self._mail.reply_in_thread(mailbox_id, thread_id, body)
+            return self._mail.reply_in_thread(mailbox_id, thread_id, body, user.id)

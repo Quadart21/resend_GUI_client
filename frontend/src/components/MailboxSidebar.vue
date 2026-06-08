@@ -11,7 +11,7 @@ defineProps({
 })
 
 const emit = defineEmits([
-  'select', 'add', 'compose', 'settings', 'users', 'logout', 'close', 'toggle-notifications',
+  'select', 'add', 'compose', 'settings', 'users', 'profile', 'logout', 'close', 'toggle-notifications',
 ])
 </script>
 
@@ -109,6 +109,17 @@ const emit = defineEmits([
           <path d="M13.73 21a2 2 0 01-3.46 0" />
         </svg>
         {{ notificationsOn ? 'Уведомления вкл.' : 'Уведомления' }}
+      </button>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-3 text-[13px] text-zinc-400 transition hover:bg-surface-hover hover:text-zinc-100 md:py-2"
+        @click="emit('profile')"
+      >
+        <svg class="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+        Профиль
       </button>
       <button
         v-if="isAdmin"

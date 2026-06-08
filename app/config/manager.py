@@ -99,11 +99,11 @@ class ConfigManager:
     def list_mailboxes(self):
         return self._mailboxes.list_all()
 
-    def add_mailbox(self, name: str, email: str):
-        return self._mailboxes.create(name, email)
+    def add_mailbox(self, name: str, email: str, signature: str = ""):
+        return self._mailboxes.create(name, email, signature)
 
-    def update_mailbox(self, mailbox_id: str, name: str, email: str):
-        return self._mailboxes.update(mailbox_id, name, email)
+    def update_mailbox(self, mailbox_id: str, name: str, email: str, signature: str = ""):
+        return self._mailboxes.update(mailbox_id, name, email, signature)
 
     def delete_mailbox(self, mailbox_id: str) -> None:
         self._mailboxes.delete(mailbox_id)

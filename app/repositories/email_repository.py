@@ -135,29 +135,59 @@ class EmailRepository:
             ).fetchone()
             return row is not None
 
-    def list_by_source(self, source: str, limit: int | None = 500) -> list[dict[str, Any]]:
-        """Письма по типу, новые первыми (ограничение для скорости UI)."""
+    def list_by_source(
+        self,
+        source: str,
+        limit: int | None = 500,
+        exclude_ids: frozenset[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Письма по типу, новые первыми."""
+        exclude_ids = exclude_ids or frozenset()
         with self._db.connection() as conn:
-            if limit:
-                rows = conn.execute(
-                    """
-                    SELECT * FROM emails WHERE source = ?
-                    ORDER BY created_at DESC LIMIT ?
-                    """,
-                    (source, limit),
-                ).fetchall()
+            if exclude_ids:
+                placeholders = ",".join("?" * len(exclude_ids))
+                base = f"""
+                    SELECT * FROM emails
+                    WHERE source = ? AND id NOT IN ({placeholders})
+                    ORDER BY created_at DESC
+                """
+                params: list[Any] = [source, *exclude_ids]
             else:
-                rows = conn.execute(
-                    "SELECT * FROM emails WHERE source = ? ORDER BY created_at DESC",
-                    (source,),
-                ).fetchall()
+                base = """
+                    SELECT * FROM emails WHERE source = ?
+                    ORDER BY created_at DESC
+                """
+                params = [source]
+
+            if limit:
+                base += " LIMIT ?"
+                params.append(limit)
+                rows = conn.execute(base, params).fetchall()
+            else:
+                rows = conn.execute(base, params).fetchall()
             return [self._row_to_api_dict(r) for r in rows]
 
-    def list_received(self, limit: int | None = 500) -> list[dict[str, Any]]:
-        return self.list_by_source("received", limit)
+    def count_by_source(self, source: str) -> int:
+        with self._db.connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM emails WHERE source = ?",
+                (source,),
+            ).fetchone()
+            return int(row["c"]) if row else 0
 
-    def list_sent(self, limit: int | None = 500) -> list[dict[str, Any]]:
-        return self.list_by_source("sent", limit)
+    def list_received(
+        self,
+        limit: int | None = 500,
+        exclude_ids: frozenset[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.list_by_source("received", limit, exclude_ids)
+
+    def list_sent(
+        self,
+        limit: int | None = 500,
+        exclude_ids: frozenset[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.list_by_source("sent", limit, exclude_ids)
 
     def count(self) -> int:
         with self._db.connection() as conn:
@@ -168,6 +198,7 @@ class EmailRepository:
         self,
         since: str,
         mailbox_emails: list[str],
+        exclude_ids: frozenset[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Входящие письма на указанные ящики, полученные после ``since`` (ISO)."""
         from app.utils.email_helper import EmailHelper
@@ -176,15 +207,29 @@ class EmailRepository:
         if not allowed:
             return []
 
+        exclude_ids = exclude_ids or frozenset()
+
         with self._db.connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM emails
-                WHERE source = 'received' AND created_at > ?
-                ORDER BY created_at ASC
-                """,
-                (since,),
-            ).fetchall()
+            if exclude_ids:
+                placeholders = ",".join("?" * len(exclude_ids))
+                rows = conn.execute(
+                    f"""
+                    SELECT * FROM emails
+                    WHERE source = 'received' AND created_at > ?
+                      AND id NOT IN ({placeholders})
+                    ORDER BY created_at ASC
+                    """,
+                    (since, *exclude_ids),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM emails
+                    WHERE source = 'received' AND created_at > ?
+                    ORDER BY created_at ASC
+                    """,
+                    (since,),
+                ).fetchall()
 
         result: list[dict[str, Any]] = []
         for row in rows:

@@ -80,15 +80,33 @@ export class ApiClient {
     return this.request('/mailboxes')
   }
 
-  updateMailbox(id, name, email) {
+  updateMailbox(id, name, email, signature = '') {
     return this.request(`/mailboxes/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ name, email }),
+      body: JSON.stringify({ name, email, signature }),
     })
   }
 
-  listThreads(mailboxId, sync = false) {
-    const q = sync ? '?sync=true' : ''
+  changePassword(currentPassword, newPassword) {
+    return this.request('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    })
+  }
+
+  searchThreads(query, limit = 50) {
+    const params = new URLSearchParams({ q: query, limit: String(limit) })
+    return this.request(`/search/threads?${params}`)
+  }
+
+  listThreads(mailboxId, sync = false, emailLimit = 500) {
+    const params = new URLSearchParams()
+    if (sync) params.set('sync', 'true')
+    if (emailLimit && emailLimit !== 500) params.set('email_limit', String(emailLimit))
+    const q = params.toString() ? `?${params}` : ''
     return this.request(`/mailboxes/${mailboxId}/threads${q}`)
   }
 

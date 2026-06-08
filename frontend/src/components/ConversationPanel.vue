@@ -1,8 +1,10 @@
 <script setup>
 import { ref, watch, nextTick, computed } from 'vue'
 import { FormatHelper } from '@/services/FormatHelper'
+import { HtmlHelper } from '@/services/HtmlHelper'
 import { AttachmentHelper } from '@/services/AttachmentHelper'
 import { api } from '@/services/ApiClient'
+import RichTextEditor from '@/components/RichTextEditor.vue'
 
 const props = defineProps({
   thread: { type: Object, default: null },
@@ -40,10 +42,13 @@ watch(
 )
 
 function sendQuickReply() {
-  const text = replyBody.value.trim()
+  const htmlRaw = replyBody.value
+  const text = HtmlHelper.toPlainText(htmlRaw)
+  const hasBody = !HtmlHelper.isEmpty(htmlRaw)
   const hasFiles = replyAttachments.value.length > 0
-  if (!text && !hasFiles) return
+  if (!hasBody && !hasFiles) return
   emit('reply', {
+    html: hasBody ? HtmlHelper.sanitize(htmlRaw) : '',
     text,
     attachments: AttachmentHelper.toPayload(replyAttachments.value),
   })
@@ -327,13 +332,19 @@ function toggleThreadStar() {
         class="shrink-0 border-t border-border bg-surface-elevated px-3 py-3 sm:px-6 sm:py-4"
         style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));"
       >
-        <textarea
+        <RichTextEditor
           v-model="replyBody"
-          rows="3"
-          class="input-field mb-2.5 resize-y"
+          class="mb-2.5"
           placeholder="Напишите ответ..."
-          enterkeyhint="send"
+          min-height="120px"
         />
+        <p
+          v-if="mailbox?.signature"
+          class="mb-2.5 whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-500"
+        >
+          Подпись будет добавлена автоматически:<br>
+          <span class="text-zinc-400">{{ mailbox.signature }}</span>
+        </p>
 
         <input
           ref="replyFileInput"
@@ -367,7 +378,7 @@ function toggleThreadStar() {
           <button
             type="button"
             class="btn-primary px-4 py-2.5"
-            :disabled="!replyBody.trim() && !replyAttachments.length"
+            :disabled="HtmlHelper.isEmpty(replyBody) && !replyAttachments.length"
             @click="sendQuickReply"
           >
             Отправить

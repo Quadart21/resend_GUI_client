@@ -15,11 +15,13 @@ class MailboxRepository:
 
     @staticmethod
     def _row_to_mailbox(row) -> Mailbox:
+        keys = row.keys()
         return Mailbox(
             id=row["id"],
             name=row["name"],
             email=row["email"],
             color=row["color"],
+            signature=row["signature"] if "signature" in keys else "",
         )
 
     def list_all(self) -> list[Mailbox]:
@@ -44,7 +46,7 @@ class MailboxRepository:
             ).fetchone()
             return self._row_to_mailbox(row) if row else None
 
-    def create(self, name: str, email: str) -> Mailbox:
+    def create(self, name: str, email: str, signature: str = "") -> Mailbox:
         """Создаёт новый ящик."""
         email = email.strip().lower()
         if self.get_by_email(email):
@@ -56,20 +58,27 @@ class MailboxRepository:
             name=name.strip(),
             email=email,
             color=MAILBOX_COLORS[count % len(MAILBOX_COLORS)],
+            signature=signature.strip(),
         )
         now = datetime.now(timezone.utc).isoformat()
         with self._db.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO mailboxes (id, name, email, color, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO mailboxes (id, name, email, color, signature, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (box.id, box.name, box.email, box.color, now),
+                (box.id, box.name, box.email, box.color, box.signature, now),
             )
             conn.commit()
         return box
 
-    def update(self, mailbox_id: str, name: str, email: str) -> Mailbox:
+    def update(
+        self,
+        mailbox_id: str,
+        name: str,
+        email: str,
+        signature: str | None = None,
+    ) -> Mailbox:
         email = email.strip().lower()
         existing = self.get_by_email(email)
         if existing and existing.id != mailbox_id:
@@ -80,10 +89,17 @@ class MailboxRepository:
             raise ValueError(f"Ящик {mailbox_id} не найден")
 
         with self._db.connection() as conn:
-            conn.execute(
-                "UPDATE mailboxes SET name = ?, email = ? WHERE id = ?",
-                (name.strip(), email, mailbox_id),
-            )
+            if signature is not None:
+                conn.execute(
+                    "UPDATE mailboxes SET name = ?, email = ?, signature = ? WHERE id = ?",
+                    (name.strip(), email, signature.strip(), mailbox_id),
+                )
+                box.signature = signature.strip()
+            else:
+                conn.execute(
+                    "UPDATE mailboxes SET name = ?, email = ? WHERE id = ?",
+                    (name.strip(), email, mailbox_id),
+                )
             conn.commit()
         box.name = name.strip()
         box.email = email
@@ -101,13 +117,14 @@ class MailboxRepository:
         with self._db.connection() as conn:
             conn.execute(
                 """
-                INSERT INTO mailboxes (id, name, email, color, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO mailboxes (id, name, email, color, signature, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(email) DO UPDATE SET
                     name = excluded.name,
-                    color = excluded.color
+                    color = excluded.color,
+                    signature = excluded.signature
                 """,
-                (box.id, box.name, box.email, box.color, now),
+                (box.id, box.name, box.email, box.color, box.signature, now),
             )
             conn.commit()
         return self.get_by_email(box.email) or box

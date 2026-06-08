@@ -36,6 +36,7 @@ const saving = ref(false)
 const editingId = ref(null)
 const editName = ref('')
 const editEmail = ref('')
+const editSignature = ref('')
 
 watch(
   () => props.open,
@@ -138,18 +139,25 @@ function startEdit(box) {
   editingId.value = box.id
   editName.value = box.name || ''
   editEmail.value = box.email || ''
+  editSignature.value = box.signature || ''
 }
 
 function cancelEdit() {
   editingId.value = null
   editName.value = ''
   editEmail.value = ''
+  editSignature.value = ''
 }
 
 async function saveEdit(id) {
   saving.value = true
   try {
-    await api.updateMailbox(id, editName.value.trim(), editEmail.value.trim())
+    await api.updateMailbox(
+      id,
+      editName.value.trim(),
+      editEmail.value.trim(),
+      editSignature.value,
+    )
     cancelEdit()
     await loadMailboxes()
     toast('Ящик обновлён')
@@ -319,6 +327,12 @@ defineExpose({ load })
                   <form class="space-y-2" @submit.prevent="saveEdit(box.id)">
                     <input v-model="editName" type="text" class="input-field" placeholder="Имя" required />
                     <input v-model="editEmail" type="email" class="input-field" placeholder="email@domain.com" required />
+                    <textarea
+                      v-model="editSignature"
+                      rows="3"
+                      class="input-field resize-y text-sm"
+                      placeholder="Подпись в письмах (например: С уважением, Поддержка Kubex)"
+                    />
                     <div class="flex justify-end gap-2">
                       <button type="button" class="btn-ghost text-xs" @click="cancelEdit">Отмена</button>
                       <button type="submit" class="btn-primary text-xs" :disabled="saving">Сохранить</button>
@@ -337,6 +351,12 @@ defineExpose({ load })
                     <div class="min-w-0 flex-1">
                       <div class="truncate text-[13px] font-semibold">{{ box.name || box.email }}</div>
                       <div class="truncate text-[11px] text-zinc-500">{{ box.email }}</div>
+                      <div
+                        v-if="box.signature"
+                        class="mt-1 line-clamp-2 whitespace-pre-wrap text-[10px] text-zinc-600"
+                      >
+                        {{ box.signature }}
+                      </div>
                     </div>
                     <div class="flex shrink-0 gap-1">
                       <button type="button" class="btn-icon h-8 w-8" title="Редактировать" @click="startEdit(box)">

@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api } from '@/services/ApiClient'
 import { FormatHelper } from '@/services/FormatHelper'
+import { HtmlHelper } from '@/services/HtmlHelper'
 import { NotificationWatcher } from '@/services/NotificationWatcher'
 import LoginView from '@/components/LoginView.vue'
 import MailboxSidebar from '@/components/MailboxSidebar.vue'
@@ -9,6 +10,7 @@ import ThreadPanel from '@/components/ThreadPanel.vue'
 import ConversationPanel from '@/components/ConversationPanel.vue'
 import ComposeModal from '@/components/ComposeModal.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
+import ProfileModal from '@/components/ProfileModal.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 
 const toastRef = ref(null)
@@ -17,20 +19,27 @@ const authLoading = ref(true)
 const mailboxes = ref([])
 const activeMailboxId = ref(null)
 const threads = ref([])
-const unreadCounts = ref({})
 const unreadTotal = ref(0)
+const unreadCounts = ref({})
+const emailLimit = ref(500)
+const hasMoreThreads = ref(false)
 const activeThread = ref(null)
 const activeThreadId = ref(null)
 const loadingThreads = ref(false)
 const loadingThread = ref(false)
 const composeOpen = ref(false)
 const settingsOpen = ref(false)
+const profileOpen = ref(false)
 const settingsInitialTab = ref('integration')
 const sidebarOpen = ref(false)
+const searchQuery = ref('')
+const searchResults = ref([])
+const searching = ref(false)
 const notificationsOn = ref(localStorage.getItem('resend_notifications_enabled') === '1')
 
 let notificationWatcher = null
 let refreshTimer = null
+let searchTimer = null
 const REFRESH_DB_MS = 15_000
 const REFRESH_SYNC_MS = 60_000
 
@@ -45,6 +54,34 @@ const threadCounts = computed(() => unreadCounts.value)
 const showConversationMobile = computed(
   () => Boolean(activeThreadId.value || loadingThread.value),
 )
+
+const isGlobalSearch = computed(() => searchQuery.value.trim().length >= 2)
+
+const displayedThreads = computed(() =>
+  isGlobalSearch.value ? searchResults.value : threads.value,
+)
+
+watch(searchQuery, (value) => {
+  clearTimeout(searchTimer)
+  const q = value.trim()
+  if (q.length < 2) {
+    searchResults.value = []
+    searching.value = false
+    return
+  }
+  searchTimer = setTimeout(async () => {
+    searching.value = true
+    try {
+      const data = await api.searchThreads(q)
+      searchResults.value = data.threads || []
+    } catch (err) {
+      searchResults.value = []
+      if (!loadingThreads.value) notify(err.message, 'error')
+    } finally {
+      searching.value = false
+    }
+  }, 300)
+})
 
 function notify(msg, type = 'success') {
   toastRef.value?.show(msg, type)
@@ -125,17 +162,21 @@ async function loadUnreadCounts() {
   }
 }
 
-async function loadThreads(sync = false, silent = false) {
+async function loadThreads(sync = false, silent = false, resetLimit = false) {
   if (!activeMailboxId.value) {
     threads.value = []
     unreadTotal.value = 0
+    hasMoreThreads.value = false
     return
   }
+  if (resetLimit) emailLimit.value = 500
   if (!silent) loadingThreads.value = true
   try {
-    const data = await api.listThreads(activeMailboxId.value, sync)
+    const data = await api.listThreads(activeMailboxId.value, sync, emailLimit.value)
     threads.value = data.threads || []
     unreadTotal.value = data.unread_total ?? threads.value.filter((t) => t.is_unread).length
+    hasMoreThreads.value = Boolean(data.has_more)
+    if (data.email_limit) emailLimit.value = data.email_limit
     if (activeMailboxId.value) {
       unreadCounts.value = {
         ...unreadCounts.value,
@@ -158,7 +199,13 @@ async function loadThreads(sync = false, silent = false) {
 }
 
 async function refreshThreads() {
-  await loadThreads(true)
+  await loadThreads(true, false, false)
+}
+
+async function loadMoreThreads() {
+  if (!hasMoreThreads.value || loadingThreads.value) return
+  emailLimit.value = Math.min(emailLimit.value + 500, 5000)
+  await loadThreads(false, false, false)
 }
 
 async function selectMailbox(id) {
@@ -166,20 +213,27 @@ async function selectMailbox(id) {
   activeThreadId.value = null
   activeThread.value = null
   sidebarOpen.value = false
-  await loadThreads()
+  await loadThreads(false, false, true)
 }
 
-async function openThread(threadId) {
-  if (!activeMailboxId.value) return
+async function openThread(threadId, mailboxId = null) {
+  const targetMailbox = mailboxId || activeMailboxId.value
+  if (!targetMailbox) return
+
+  if (targetMailbox !== activeMailboxId.value) {
+    activeMailboxId.value = targetMailbox
+    await loadThreads(false, true, false)
+  }
 
   activeThreadId.value = threadId
   loadingThread.value = true
 
-  const preview = threads.value.find((t) => t.id === threadId)
+  const sourceList = isGlobalSearch.value ? searchResults.value : threads.value
+  const preview = sourceList.find((t) => t.id === threadId)
   activeThread.value = preview ? { ...preview, messages: [] } : null
 
   try {
-    activeThread.value = await api.getThread(activeMailboxId.value, threadId)
+    activeThread.value = await api.getThread(targetMailbox, threadId)
     await markThreadRead(threadId)
     if (activeThread.value?.messages) {
       activeThread.value = {
@@ -189,6 +243,10 @@ async function openThread(threadId) {
         messages: activeThread.value.messages.map((m) => ({ ...m, is_unread: false })),
       }
     }
+    const patchUnread = (list) =>
+      list.map((t) => (t.id === threadId ? { ...t, is_unread: false, unread_count: 0 } : t))
+    threads.value = patchUnread(threads.value)
+    searchResults.value = patchUnread(searchResults.value)
   } catch (err) {
     notify(err.message, 'error')
     activeThread.value = null
@@ -202,6 +260,11 @@ function closeConversation() {
   activeThreadId.value = null
   activeThread.value = null
   loadingThread.value = false
+}
+
+function openProfile() {
+  profileOpen.value = true
+  sidebarOpen.value = false
 }
 
 function openCompose() {
@@ -227,18 +290,21 @@ async function handleSend(payload) {
 async function handleReply(payload) {
   if (!activeMailboxId.value || !activeThreadId.value) return
   const text = typeof payload === 'string' ? payload : (payload.text || '')
+  const htmlRaw = typeof payload === 'object' ? (payload.html || '') : ''
   const attachments = typeof payload === 'object' ? (payload.attachments || []) : []
-  if (!text.trim() && !attachments.length) return
+  const hasHtml = htmlRaw && !HtmlHelper.isEmpty(htmlRaw)
+  const hasText = text.trim().length > 0
+  if (!hasHtml && !hasText && !attachments.length) return
 
-  const html = text.trim()
-    ? `<p>${FormatHelper.escapeHtml(text).replace(/\n/g, '<br>')}</p>`
-    : '<p></p>'
+  const html = hasHtml
+    ? HtmlHelper.sanitize(htmlRaw)
+    : (hasText ? `<p>${FormatHelper.escapeHtml(text).replace(/\n/g, '<br>')}</p>` : '<p></p>')
 
   try {
     await api.replyThread(activeMailboxId.value, activeThreadId.value, {
       mailbox_id: activeMailboxId.value,
       html,
-      text,
+      text: hasText ? text : HtmlHelper.toPlainText(html),
       attachments,
     })
     notify('Ответ отправлен')
@@ -249,17 +315,21 @@ async function handleReply(payload) {
   }
 }
 
-async function toggleThreadStar(threadId, starred) {
-  if (!activeMailboxId.value) return
+async function toggleThreadStar(threadId, starred, mailboxId = null) {
+  const targetMailbox = mailboxId || activeMailboxId.value
+  if (!targetMailbox) return
   try {
-    await api.starThread(activeMailboxId.value, threadId, starred)
-    threads.value = threads.value.map((t) =>
-      t.id === threadId ? { ...t, is_starred: starred } : t,
-    )
+    await api.starThread(targetMailbox, threadId, starred)
+    const patch = (list) =>
+      list.map((t) => (t.id === threadId ? { ...t, is_starred: starred } : t))
+    threads.value = patch(threads.value)
+    searchResults.value = patch(searchResults.value)
     if (activeThread.value?.id === threadId) {
       activeThread.value = { ...activeThread.value, is_starred: starred }
     }
-    await loadThreads(false, true)
+    if (!isGlobalSearch.value && targetMailbox === activeMailboxId.value) {
+      await loadThreads(false, true)
+    }
     notify(starred ? 'Переписка в важных' : 'Убрано из важных')
   } catch (err) {
     notify(err.message, 'error')
@@ -460,6 +530,7 @@ onUnmounted(() => {
         @add="settingsOpen = true"
         @settings="openAdminPanel"
         @users="openUsersPanel"
+        @profile="openProfile"
         @logout="logout"
         @toggle-notifications="toggleNotifications"
         @close="sidebarOpen = false"
@@ -468,20 +539,27 @@ onUnmounted(() => {
       <ThreadPanel
         class="panel w-full shrink-0 md:w-[340px]"
         :class="showConversationMobile ? 'hidden md:flex' : 'flex'"
-        :threads="threads"
+        v-model:search-query="searchQuery"
+        :threads="displayedThreads"
         :active-mailbox="activeMailbox"
         :active-thread-id="activeThreadId"
         :loading="loadingThreads"
+        :searching="searching"
+        :show-mailbox="isGlobalSearch"
         :unread-total="unreadTotal"
+        :has-more="hasMoreThreads"
+        :loading-more="loadingThreads && emailLimit > 500"
         :is-admin="isAdmin"
         :notifications-on="notificationsOn"
         @select="openThread"
         @refresh="refreshThreads"
+        @load-more="loadMoreThreads"
         @mark-all-read="markAllRead"
         @star-thread="toggleThreadStar"
         @menu="sidebarOpen = true"
         @compose="openCompose"
         @settings="openAdminPanel"
+        @profile="openProfile"
         @logout="logout"
         @toggle-notifications="toggleNotifications"
       />
@@ -520,6 +598,12 @@ onUnmounted(() => {
       :active-mailbox-id="activeMailboxId"
       @close="composeOpen = false"
       @send="handleSend"
+      @notify="notify"
+    />
+
+    <ProfileModal
+      :open="profileOpen"
+      @close="profileOpen = false"
       @notify="notify"
     />
 

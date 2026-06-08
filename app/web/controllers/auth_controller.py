@@ -1,8 +1,8 @@
 """Контроллер входа и сессий."""
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 
-from app.models.dto import LoginDto
+from app.models.dto import ChangePasswordDto, LoginDto
 from app.models.user import User
 from app.services.auth_service import AuthService, SESSION_COOKIE
 
@@ -47,3 +47,17 @@ class AuthController:
         async def me(request: Request) -> dict:
             user = self._auth.require_user(request.cookies.get(SESSION_COOKIE))
             return {"user": user.to_public_dict()}
+
+        @router.post("/auth/change-password")
+        async def change_password(body: ChangePasswordDto, request: Request) -> dict:
+            user = self._auth.require_user(request.cookies.get(SESSION_COOKIE))
+            try:
+                self._auth.change_password(
+                    user,
+                    body.current_password,
+                    body.new_password,
+                    keep_token=request.cookies.get(SESSION_COOKIE),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            return {"ok": True}
