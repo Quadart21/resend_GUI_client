@@ -136,6 +136,54 @@
   .brand-mark {
     @apply grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm ring-1 ring-white/10;
   }
+
+  .top-nav-mailboxes {
+    @apply min-w-0;
+  }
+
+  .top-nav-mailbox {
+    @apply inline-flex shrink-0 items-center gap-2 rounded-xl border border-transparent px-2.5 py-1.5 text-left text-muted transition hover:bg-surface-hover hover:text-zinc-100;
+  }
+
+  .top-nav-mailbox-active {
+    @apply border-accent/30 bg-accent-soft text-zinc-100;
+  }
+
+  .top-nav-mailbox-add {
+    @apply grid h-9 w-9 place-items-center p-0;
+  }
+
+  .top-nav-profile {
+    @apply rounded-xl p-0.5 transition hover:bg-surface-hover;
+  }
+
+  .reading-pane {
+    @apply flex min-w-0 flex-1 flex-col overflow-hidden bg-canvas;
+  }
+
+  .reading-prose {
+    @apply text-[15px] leading-[1.7] text-zinc-100;
+  }
+
+  .message-block {
+    @apply rounded-2xl border border-border/80 bg-surface-elevated/40 transition;
+  }
+
+  .message-block-expanded {
+    @apply border-border bg-surface-elevated/70 shadow-panel;
+  }
+
+  .message-block-collapsed {
+    @apply cursor-pointer hover:border-border-light hover:bg-surface-hover;
+  }
+
+  .inbox-full {
+    @apply w-full flex-1 border-r-0;
+  }
+
+  .inbox-split {
+    @apply w-full shrink-0 border-r border-border md:w-[17rem] lg:w-[19rem];
+  }
 }
 
 ::-webkit-scrollbar {

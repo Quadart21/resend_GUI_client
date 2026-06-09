@@ -6,6 +6,7 @@ import { HtmlHelper } from '@/services/HtmlHelper'
 import { NotificationWatcher } from '@/services/NotificationWatcher'
 import LoginView from '@/components/LoginView.vue'
 import AppShell from '@/components/AppShell.vue'
+import TopNav from '@/components/TopNav.vue'
 import MailboxSidebar from '@/components/MailboxSidebar.vue'
 import ThreadPanel from '@/components/ThreadPanel.vue'
 import ConversationPanel from '@/components/ConversationPanel.vue'
@@ -33,6 +34,8 @@ const settingsOpen = ref(false)
 const profileOpen = ref(false)
 const settingsInitialTab = ref('integration')
 const sidebarOpen = ref(false)
+const listVisible = ref(true)
+const focusMode = ref(false)
 const searchQuery = ref('')
 const searchResults = ref([])
 const searching = ref(false)
@@ -55,6 +58,14 @@ const threadCounts = computed(() => unreadCounts.value)
 const showConversationMobile = computed(
   () => Boolean(activeThreadId.value || loadingThread.value),
 )
+
+const hasActiveThread = computed(() => Boolean(activeThreadId.value))
+
+const showThreadListDesktop = computed(() => {
+  if (!hasActiveThread.value) return true
+  if (focusMode.value) return false
+  return listVisible.value
+})
 
 const isGlobalSearch = computed(() => searchQuery.value.trim().length >= 2)
 
@@ -228,6 +239,8 @@ async function openThread(threadId, mailboxId = null) {
 
   activeThreadId.value = threadId
   loadingThread.value = true
+  listVisible.value = true
+  focusMode.value = false
 
   const sourceList = isGlobalSearch.value ? searchResults.value : threads.value
   const preview = sourceList.find((t) => t.id === threadId)
@@ -261,6 +274,18 @@ function closeConversation() {
   activeThreadId.value = null
   activeThread.value = null
   loadingThread.value = false
+  focusMode.value = false
+}
+
+function toggleListVisible() {
+  listVisible.value = !listVisible.value
+  if (listVisible.value) focusMode.value = false
+}
+
+function toggleFocusMode() {
+  focusMode.value = !focusMode.value
+  if (focusMode.value) listVisible.value = false
+  else listVisible.value = true
 }
 
 function openProfile() {
@@ -509,10 +534,30 @@ onUnmounted(() => {
   <LoginView v-else-if="!user" @login="onLogin" />
 
   <AppShell v-else :sidebar-open="sidebarOpen" @close-sidebar="sidebarOpen = false">
+    <template #topbar>
+      <TopNav
+        :mailboxes="mailboxes"
+        :active-id="activeMailboxId"
+        :thread-counts="threadCounts"
+        :is-admin="isAdmin"
+        :username="user.username"
+        :notifications-on="notificationsOn"
+        @select="selectMailbox"
+        @compose="openCompose"
+        @add="settingsOpen = true"
+        @settings="openAdminPanel"
+        @users="openUsersPanel"
+        @profile="openProfile"
+        @logout="logout"
+        @toggle-notifications="toggleNotifications"
+        @open-menu="sidebarOpen = true"
+      />
+    </template>
+
     <template #sidebar>
       <MailboxSidebar
-        class="fixed inset-y-0 left-0 z-50 w-[min(17rem,88vw)] transition-transform duration-200 ease-out md:static md:z-auto md:translate-x-0"
-        :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
+        class="fixed inset-y-0 left-0 z-50 w-[min(17rem,88vw)] transition-transform duration-200 ease-out md:hidden"
+        :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
         :mailboxes="mailboxes"
         :active-id="activeMailboxId"
         :thread-counts="threadCounts"
@@ -533,8 +578,8 @@ onUnmounted(() => {
 
     <template #list>
       <ThreadPanel
-        class="flex"
-        :class="showConversationMobile ? 'hidden md:flex' : 'flex'"
+        class="flex min-w-0"
+        :class="showConversationMobile ? 'hidden md:flex' : (showThreadListDesktop ? 'flex flex-1' : 'hidden')"
         v-model:search-query="searchQuery"
         :threads="displayedThreads"
         :active-mailbox="activeMailbox"
@@ -545,6 +590,8 @@ onUnmounted(() => {
         :unread-total="unreadTotal"
         :has-more="hasMoreThreads"
         :loading-more="loadingThreads && emailLimit > 500"
+        :compact="hasActiveThread"
+        :layout="hasActiveThread ? 'split' : 'full'"
         @select="openThread"
         @refresh="refreshThreads"
         @load-more="loadMoreThreads"
@@ -557,17 +604,21 @@ onUnmounted(() => {
 
     <template #main>
       <ConversationPanel
-        class="flex min-w-0 flex-1 flex-col"
-        :class="showConversationMobile ? 'fixed inset-0 z-30 flex md:static md:z-auto' : 'hidden md:flex'"
+        v-if="hasActiveThread || loadingThread"
+        class="reading-pane min-w-0 flex-1"
+        :class="showConversationMobile ? 'fixed inset-0 z-30 md:static md:z-auto' : 'flex'"
         :thread="activeThread"
         :mailbox="activeMailbox"
         :loading="loadingThread"
+        :list-visible="listVisible"
         @reply="handleReply"
         @back="closeConversation"
         @star-thread="toggleThreadStar"
         @star-message="toggleMessageStar"
         @delete-message="deleteMessage"
         @notify="notify"
+        @toggle-list="toggleListVisible"
+        @toggle-focus="toggleFocusMode"
       />
 
       <button

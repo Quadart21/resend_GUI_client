@@ -7,6 +7,7 @@ defineProps({
   thread: { type: Object, required: true },
   active: { type: Boolean, default: false },
   showMailbox: { type: Boolean, default: false },
+  compact: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['select', 'star'])
@@ -15,15 +16,32 @@ const emit = defineEmits(['select', 'star'])
 <template>
   <button
     type="button"
-    class="thread-item group"
+    class="thread-item group text-left"
     :class="{
       'thread-item-active': active,
       'thread-item-unread': thread.is_unread,
       'border-l-2 border-l-warning/70 pl-[calc(1rem-2px)]': thread.is_starred,
+      'px-3 py-2.5': compact,
     }"
     @click="emit('select', thread.id, thread.mailbox_id)"
   >
-    <div class="flex items-start gap-3">
+    <div v-if="compact" class="flex items-center gap-2.5">
+      <div
+        class="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[10px] font-bold"
+        :class="thread.is_unread ? 'bg-gradient-to-br from-accent to-brand-700 text-white' : 'bg-surface-active text-muted ring-1 ring-border'"
+      >
+        {{ FormatHelper.initials(thread.correspondent, thread.correspondent) }}
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="truncate text-xs font-semibold" :class="thread.is_unread ? 'text-zinc-50' : 'text-zinc-300'">
+          {{ thread.correspondent }}
+        </div>
+        <div class="truncate text-[11px] text-muted">{{ thread.subject }}</div>
+      </div>
+      <span v-if="thread.is_unread" class="h-2 w-2 shrink-0 rounded-full bg-accent" />
+    </div>
+
+    <div v-else class="flex items-start gap-3">
       <div
         class="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
         :class="thread.is_unread ? 'bg-gradient-to-br from-accent to-brand-700' : 'bg-surface-active text-muted ring-1 ring-border'"

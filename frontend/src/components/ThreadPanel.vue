@@ -17,6 +17,8 @@ const props = defineProps({
   searchQuery: { type: String, default: '' },
   searching: { type: Boolean, default: false },
   showMailbox: { type: Boolean, default: false },
+  compact: { type: Boolean, default: false },
+  layout: { type: String, default: 'full' },
 })
 
 const emit = defineEmits([
@@ -47,6 +49,10 @@ const filtered = computed(() => {
   return items
 })
 
+const layoutClass = computed(() =>
+  props.layout === 'split' ? 'inbox-split' : 'inbox-full',
+)
+
 watch(
   () => props.searchQuery,
   (value) => {
@@ -56,7 +62,7 @@ watch(
 </script>
 
 <template>
-  <section class="panel w-full shrink-0 border-r border-border md:w-[22rem] lg:w-[24rem]">
+  <section class="panel flex flex-col overflow-hidden bg-surface" :class="layoutClass">
     <header class="panel-header flex items-center gap-2">
       <button type="button" class="btn-icon btn-icon-ghost md:hidden" aria-label="Меню" @click="emit('menu')">
         <AppIcon name="menu" />
@@ -65,7 +71,7 @@ watch(
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2">
           <h2 class="truncate text-sm font-bold tracking-tight">
-            {{ isGlobalSearch ? 'Поиск' : 'Входящие' }}
+            {{ isGlobalSearch ? 'Поиск' : compact ? 'Переписки' : 'Входящие' }}
           </h2>
           <span
             v-if="!isGlobalSearch && unreadTotal"
@@ -74,13 +80,13 @@ watch(
             {{ unreadTotal }}
           </span>
         </div>
-        <p class="truncate text-[11px] text-muted">
+        <p v-if="!compact" class="truncate text-[11px] text-muted">
           {{ isGlobalSearch ? 'По всем ящикам' : activeMailbox?.email }}
         </p>
       </div>
 
       <button
-        v-if="!isGlobalSearch && unreadTotal"
+        v-if="!isGlobalSearch && unreadTotal && !compact"
         type="button"
         class="btn-ghost hidden px-2 py-1 text-[11px] sm:inline-flex"
         @click="emit('mark-all-read')"
@@ -90,13 +96,18 @@ watch(
       <button type="button" class="btn-icon btn-icon-ghost" title="Обновить" @click="emit('refresh')">
         <AppIcon name="refresh" />
       </button>
-      <button type="button" class="btn-primary hidden px-3 py-2 text-xs md:inline-flex" @click="emit('compose')">
+      <button
+        v-if="!compact"
+        type="button"
+        class="btn-primary hidden px-3 py-2 text-xs md:inline-flex"
+        @click="emit('compose')"
+      >
         <AppIcon name="compose" size="sm" />
         Написать
       </button>
     </header>
 
-    <div class="relative border-b border-border px-3 py-2.5">
+    <div v-if="!compact" class="relative border-b border-border px-3 py-2.5">
       <AppIcon name="search" class="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-muted" />
       <input
         :value="searchQuery"
@@ -108,7 +119,7 @@ watch(
       />
     </div>
 
-    <div v-if="!isGlobalSearch" class="border-b border-border px-3 py-2">
+    <div v-if="!isGlobalSearch && !compact" class="border-b border-border px-3 py-2">
       <UiSegmentedControl v-model="listFilter" :options="filterOptions" />
     </div>
 
@@ -120,7 +131,7 @@ watch(
       <UiEmptyState
         v-else-if="!filtered.length"
         :title="isGlobalSearch ? 'Ничего не найдено' : listFilter === 'all' ? 'Нет переписок' : 'Нет подходящих переписок'"
-        :description="!isGlobalSearch && listFilter === 'all' ? 'Напишите первое письмо или дождитесь входящего' : ''"
+        :description="!isGlobalSearch && listFilter === 'all' && !compact ? 'Напишите первое письмо или дождитесь входящего' : ''"
         :icon="isGlobalSearch ? 'search' : 'inbox'"
       />
 
@@ -131,6 +142,7 @@ watch(
           :thread="thread"
           :active="thread.id === activeThreadId"
           :show-mailbox="showMailbox"
+          :compact="compact"
           @select="(id, mb) => emit('select', id, mb)"
           @star="(id, starred, mb) => emit('star-thread', id, starred, mb)"
         />
